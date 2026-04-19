@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+sqlalchemy
+pdfplumber
+python-docx
+sentence-transformers
+anthropic
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+numpy

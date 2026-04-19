@@ -1,0 +1,351 @@
+import os
+import re
+import uuid
+from datetime import datetime, timezone
+
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+
+from database import get_db, init_db
+from models import User, Document, Chunk, ChatSession, Message, TopQuestion
+from auth import (
+    hash_password, verify_password, create_token,
+    get_current_user, require_admin,
+)
+from embeddings import embed_text, embed_texts, cosine_similarity
+from document_parser import extract_text, chunk_text
+
+app = FastAPI(title="Adgar's Processes Personal Assistant")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.on_event("startup")
+def startup():
+    init_db()
+
+
+# --------------- Health ---------------
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+# --------------- Auth ---------------
+
+class RegisterBody(BaseModel):
+    email: str
+    password: str
+    role: str = "employee"
+    admin_code: str | None = None
+
+
+class LoginBody(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/api/auth/register")
+def register(body: RegisterBody, db: Session = Depends(get_db)):
+    if db.query(User).filter(User.email == body.email).first():
+        raise HTTPException(400, "Email already registered")
+    role = "employee"
+    if body.role == "admin":
+        expected = os.getenv("ADMIN_REGISTRATION_CODE", "")
+        if not expected or body.admin_code != expected:
+            raise HTTPException(403, "Invalid admin registration code")
+        role = "admin"
+    user = User(email=body.email, hashed_password=hash_password(body.password), role=role)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"id": user.id, "email": user.email, "role": user.role, "token": create_token(user.id, user.role)}
+
+
+@app.post("/api/auth/login")
+def login(body: LoginBody, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == body.email).first()
+    if not user or not verify_password(body.password, user.hashed_password):
+        raise HTTPException(401, "Invalid credentials")
+    return {"id": user.id, "email": user.email, "role": user.role, "token": create_token(user.id, user.role)}
+
+
+@app.get("/api/auth/me")
+def me(user: User = Depends(get_current_user)):
+    return {"id": user.id, "email": user.email, "role": user.role}
+
+
+# --------------- Admin: Documents ---------------
+
+@app.post("/api/admin/documents/upload")
+async def upload_document(
+    file: UploadFile = File(...),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    if not file.filename:
+        raise HTTPException(400, "No file provided")
+    allowed = (".pdf", ".docx", ".txt")
+    if not any(file.filename.lower().endswith(ext) for ext in allowed):
+        raise HTTPException(400, f"Unsupported file type. Allowed: {', '.join(allowed)}")
+
+    content = await file.read()
+    text = extract_text(content, file.filename)
+    if not text.strip():
+        raise HTTPException(400, "Could not extract any text from the file")
+
+    chunks = chunk_text(text)
+    embeddings = embed_texts(chunks)
+
+    stored_name = f"{uuid.uuid4().hex}_{file.filename}"
+    doc = Document(
+        filename=stored_name,
+        original_name=file.filename,
+        uploaded_by=user.id,
+        chunk_count=len(chunks),
+    )
+    db.add(doc)
+    db.flush()
+
+    for i, (chunk_text_item, emb) in enumerate(zip(chunks, embeddings)):
+        c = Chunk(document_id=doc.id, content=chunk_text_item, chunk_index=i)
+        c.set_embedding(emb)
+        db.add(c)
+
+    db.commit()
+    db.refresh(doc)
+    return {
+        "id": doc.id,
+        "filename": doc.original_name,
+        "chunk_count": doc.chunk_count,
+        "upload_date": doc.upload_date.isoformat(),
+    }
+
+
+@app.get("/api/admin/documents")
+def list_documents(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    docs = db.query(Document).order_by(Document.upload_date.desc()).all()
+    return [
+        {
+            "id": d.id,
+            "filename": d.original_name,
+            "upload_date": d.upload_date.isoformat(),
+            "chunk_count": d.chunk_count,
+            "active": d.active,
+        }
+        for d in docs
+    ]
+
+
+@app.delete("/api/admin/documents/{doc_id}")
+def delete_document(doc_id: int, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(404, "Document not found")
+    doc.active = False
+    db.commit()
+    return {"detail": "Document deactivated"}
+
+
+@app.patch("/api/admin/documents/{doc_id}/toggle")
+def toggle_document(doc_id: int, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(404, "Document not found")
+    doc.active = not doc.active
+    db.commit()
+    return {"id": doc.id, "active": doc.active}
+
+
+# --------------- Chat ---------------
+
+class ChatMessageBody(BaseModel):
+    session_id: int | None = None
+    message: str
+
+
+def _normalize_question(text: str) -> str:
+    return re.sub(r"\s+", " ", text.strip().lower())
+
+
+def _update_top_questions(db: Session, question: str):
+    normalized = _normalize_question(question)
+    existing = db.query(TopQuestion).filter(TopQuestion.question_text == normalized).first()
+    if existing:
+        existing.count += 1
+        existing.last_asked = datetime.now(timezone.utc)
+    else:
+        db.add(TopQuestion(question_text=normalized, count=1, last_asked=datetime.now(timezone.utc)))
+    db.commit()
+
+
+def _find_relevant_chunks(db: Session, query_embedding: list[float], top_k: int = 5) -> list[Chunk]:
+    active_doc_ids = [d.id for d in db.query(Document.id).filter(Document.active == True).all()]
+    if not active_doc_ids:
+        return []
+    chunks = db.query(Chunk).filter(Chunk.document_id.in_(active_doc_ids)).all()
+    scored = []
+    for chunk in chunks:
+        sim = cosine_similarity(query_embedding, chunk.get_embedding())
+        scored.append((sim, chunk))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [c for _, c in scored[:top_k]]
+
+
+SYSTEM_PROMPT = (
+    "You are Adgar's Processes Personal Assistant. You help employees understand company "
+    "procedures and guidelines. Answer clearly and conversationally based ONLY on the provided "
+    "context. If the answer is not in the documents, say so honestly. Never make up procedures. "
+    "Be concise but thorough."
+)
+
+
+@app.post("/api/chat/message")
+def chat_message(
+    body: ChatMessageBody,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    import anthropic
+
+    if not body.message.strip():
+        raise HTTPException(400, "Message cannot be empty")
+
+    if body.session_id:
+        session = db.query(ChatSession).filter(
+            ChatSession.id == body.session_id, ChatSession.user_id == user.id
+        ).first()
+        if not session:
+            raise HTTPException(404, "Session not found")
+    else:
+        title = body.message[:80].strip()
+        session = ChatSession(user_id=user.id, title=title)
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+
+    user_msg = Message(session_id=session.id, role="user", content=body.message)
+    db.add(user_msg)
+    db.commit()
+
+    query_emb = embed_text(body.message)
+    relevant_chunks = _find_relevant_chunks(db, query_emb)
+
+    context_text = ""
+    if relevant_chunks:
+        context_parts = [f"[Document chunk {i+1}]\n{c.content}" for i, c in enumerate(relevant_chunks)]
+        context_text = "\n\n---\n\n".join(context_parts)
+
+    user_content = body.message
+    if context_text:
+        user_content = f"Context from company documents:\n\n{context_text}\n\n---\n\nEmployee question: {body.message}"
+
+    history = (
+        db.query(Message)
+        .filter(Message.session_id == session.id)
+        .order_by(Message.created_at)
+        .all()
+    )
+    messages = []
+    for msg in history[:-1]:
+        messages.append({"role": msg.role, "content": msg.content})
+    messages.append({"role": "user", "content": user_content})
+
+    _update_top_questions(db, body.message)
+
+    client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    session_id = session.id
+
+    def generate():
+        full_response = ""
+        with client.messages.stream(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2048,
+            system=SYSTEM_PROMPT,
+            messages=messages,
+        ) as stream:
+            for text in stream.text_stream:
+                full_response += text
+                yield f"data: {text}\n\n"
+
+        assistant_msg = Message(session_id=session_id, role="assistant", content=full_response)
+        db_inner = next(get_db())
+        try:
+            db_inner.add(assistant_msg)
+            db_inner.commit()
+        finally:
+            db_inner.close()
+
+        yield f"event: done\ndata: {session_id}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Session-Id": str(session_id)},
+    )
+
+
+@app.get("/api/chat/sessions")
+def list_sessions(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    sessions = db.query(ChatSession).filter(ChatSession.user_id == user.id).order_by(ChatSession.created_at.desc()).all()
+    result = []
+    for s in sessions:
+        msg_count = db.query(func.count(Message.id)).filter(Message.session_id == s.id).scalar()
+        result.append({
+            "id": s.id,
+            "title": s.title,
+            "created_at": s.created_at.isoformat(),
+            "message_count": msg_count,
+        })
+    return result
+
+
+@app.get("/api/chat/sessions/{session_id}/messages")
+def get_session_messages(session_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    session = db.query(ChatSession).filter(ChatSession.id == session_id, ChatSession.user_id == user.id).first()
+    if not session:
+        raise HTTPException(404, "Session not found")
+    messages = db.query(Message).filter(Message.session_id == session_id).order_by(Message.created_at).all()
+    return [
+        {"id": m.id, "role": m.role, "content": m.content, "created_at": m.created_at.isoformat()}
+        for m in messages
+    ]
+
+
+@app.delete("/api/chat/sessions/{session_id}")
+def delete_session(session_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    session = db.query(ChatSession).filter(ChatSession.id == session_id, ChatSession.user_id == user.id).first()
+    if not session:
+        raise HTTPException(404, "Session not found")
+    db.query(Message).filter(Message.session_id == session_id).delete()
+    db.delete(session)
+    db.commit()
+    return {"detail": "Session deleted"}
+
+
+@app.get("/api/chat/top-questions")
+def top_questions(db: Session = Depends(get_db)):
+    questions = db.query(TopQuestion).order_by(TopQuestion.count.desc()).limit(5).all()
+    return [{"question": q.question_text, "count": q.count} for q in questions]
+
+
+# --------------- Static frontend ---------------
+
+@app.get("/")
+def serve_frontend():
+    return FileResponse("static/index.html")
+
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
