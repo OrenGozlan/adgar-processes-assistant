@@ -143,6 +143,14 @@ input,textarea{font-family:inherit;font-size:inherit}
 .auth-card .toggle-link a{color:#a5b4fc;cursor:pointer;text-decoration:none;font-weight:500}
 .auth-card .toggle-link a:hover{color:#c7d2fe}
 .auth-card .error{color:var(--danger);font-size:12px;margin-top:8px;text-align:center;padding:8px;background:rgba(255,71,87,.1);border-radius:8px}
+.mobile-banner{background:rgba(240,160,48,.15);border:1px solid rgba(240,160,48,.3);color:#f0a030;font-size:12px;text-align:center;padding:10px 14px;border-radius:10px;margin-bottom:16px;line-height:1.4}
+.suggest-section{padding:8px 16px 16px}
+.suggest-section h3{font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
+.suggest-btn{width:100%;padding:8px;background:var(--card);color:var(--text);border:1px dashed var(--border);border-radius:8px;font-size:12px;margin-bottom:8px}
+.suggest-btn:hover{border-color:var(--primary)}
+.pending-badge{display:inline-block;background:rgba(240,160,48,.2);color:#f0a030;font-size:10px;padding:2px 6px;border-radius:4px;white-space:nowrap}
+.approve-btn{background:none;color:var(--success);font-size:14px;padding:0 3px;border:none;cursor:pointer}
+.reject-btn{background:none;color:var(--danger);font-size:14px;padding:0 3px;border:none;cursor:pointer}
 
 /* Upload modal */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:200}
@@ -178,6 +186,9 @@ input,textarea{font-family:inherit;font-size:inherit}
 <div id="authOverlay" class="auth-overlay">
   <div class="auth-card">
     <div class="auth-logo"><img src="/static/adgar-logo.webp" alt="Adgar"></div>
+    <div id="mobileBanner" class="mobile-banner" style="display:none">
+      📱 Mobile is not fully supported. User experience may be affected.
+    </div>
     <h2 id="authTitle">Welcome Back</h2>
     <p class="subtitle">Adgar's Processes Assistant</p>
     <div id="authForm">
@@ -230,6 +241,22 @@ input,textarea{font-family:inherit;font-size:inherit}
   </div>
 </div>
 
+<!-- Suggest Upload Modal -->
+<div id="suggestModal" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <h3>Upload New Process</h3>
+    <p style="font-size:12px;color:var(--text-dim);margin-bottom:16px">Your file will be submitted for admin review before it becomes available.</p>
+    <div class="drop-zone" id="suggestDropZone">
+      <p>Drag & drop a file here, or click to browse</p>
+      <p style="margin-top:8px;font-size:11px">Supported: PDF, DOCX, TXT</p>
+      <input type="file" id="suggestFileInput" accept=".pdf,.docx,.txt">
+    </div>
+    <div class="progress-bar" id="suggestProgressBar"><div class="fill" id="suggestProgressFill"></div></div>
+    <div class="upload-status" id="suggestUploadStatus"></div>
+    <button class="close-btn" id="closeSuggestModal">Close</button>
+  </div>
+</div>
+
 <!-- Mobile -->
 <button class="hamburger" id="hamburger">&#9776;</button>
 <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
@@ -244,6 +271,10 @@ input,textarea{font-family:inherit;font-size:inherit}
     </div>
     <div class="sessions-list" id="sessionsList"></div>
     <div class="sidebar-divider"></div>
+    <div class="suggest-section" id="suggestSection" style="display:none">
+      <h3>Suggest a Process</h3>
+      <button class="suggest-btn" id="suggestBtn">+ Upload New Process</button>
+    </div>
     <div class="docs-section" id="docsSection" style="display:none">
       <h3>Documents</h3>
       <button class="upload-btn" id="uploadBtn">+ Upload Document</button>
@@ -362,6 +393,7 @@ function logout() {
   $('sessionsList').innerHTML = '';
   $('docsList').innerHTML = '';
   $('docsSection').style.display = 'none';
+  $('suggestSection').style.display = 'none';
   showEmpty();
   showAuth(true);
 }
@@ -480,6 +512,8 @@ function enterApp() {
   if (currentUser.role === 'admin') {
     $('docsSection').style.display = 'block';
     tasks.push(loadDocuments());
+  } else {
+    $('suggestSection').style.display = 'block';
   }
   Promise.all(tasks);
 }
@@ -717,26 +751,42 @@ async function loadDocuments() {
       div.className = 'doc-item';
       const isProcessing = d.status === 'processing';
       const isError = d.status === 'error';
+      const isPending = d.status === 'pending';
       if (isProcessing) hasProcessing = true;
-      const statusBadge = isProcessing
+      const statusBadge = isPending
+        ? '<span class="pending-badge">Pending</span>'
+        : isProcessing
         ? '<span style="font-size:10px;color:#f0a030;white-space:nowrap">Processing...</span>'
         : isError
         ? '<span style="font-size:10px;color:var(--danger)">Error</span>'
         : `<span style="font-size:10px;color:var(--text-dim)">${d.chunk_count}ch</span>`;
+      const actions = isPending
+        ? '<button class="approve-btn" title="Approve">&#10003;</button><button class="reject-btn" title="Reject">&times;</button>'
+        : `<button class="toggle ${d.active ? 'active' : ''}" title="Toggle active" ${isProcessing ? 'disabled' : ''}></button><button class="del" title="Delete">&times;</button>`;
       div.innerHTML = `
         <span class="name" title="${esc(d.filename)}">${esc(d.filename)}</span>
         ${statusBadge}
-        <button class="toggle ${d.active ? 'active' : ''}" title="Toggle active" ${isProcessing ? 'disabled' : ''}></button>
-        <button class="del" title="Delete">&times;</button>
+        ${actions}
       `;
-      div.querySelector('.toggle').onclick = async () => {
-        await apiFetch(`/api/admin/documents/${d.id}/toggle`, { method: 'PATCH' });
-        loadDocuments();
-      };
-      div.querySelector('.del').onclick = async () => {
-        await apiFetch(`/api/admin/documents/${d.id}`, { method: 'DELETE' });
-        loadDocuments();
-      };
+      if (isPending) {
+        div.querySelector('.approve-btn').onclick = async () => {
+          await apiFetch(`/api/admin/documents/${d.id}/approve`, { method: 'POST' });
+          loadDocuments();
+        };
+        div.querySelector('.reject-btn').onclick = async () => {
+          await apiFetch(`/api/admin/documents/${d.id}/reject`, { method: 'POST' });
+          loadDocuments();
+        };
+      } else {
+        div.querySelector('.toggle').onclick = async () => {
+          await apiFetch(`/api/admin/documents/${d.id}/toggle`, { method: 'PATCH' });
+          loadDocuments();
+        };
+        div.querySelector('.del').onclick = async () => {
+          await apiFetch(`/api/admin/documents/${d.id}`, { method: 'DELETE' });
+          loadDocuments();
+        };
+      }
       $('docsList').appendChild(div);
     });
     if (_docPollTimer) { clearInterval(_docPollTimer); _docPollTimer = null; }
@@ -792,6 +842,48 @@ $('sidebarBackdrop').onclick = () => { $('sidebar').classList.remove('open'); $(
 
 // --- Util ---
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// --- Mobile detection ---
+if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || window.innerWidth < 768) {
+  $('mobileBanner').style.display = 'block';
+}
+
+// --- Suggest upload (employee) ---
+$('suggestBtn').onclick = () => { $('suggestModal').style.display = 'flex'; $('suggestUploadStatus').textContent = ''; $('suggestProgressBar').style.display = 'none'; };
+$('closeSuggestModal').onclick = () => { $('suggestModal').style.display = 'none'; };
+
+const suggestDZ = $('suggestDropZone');
+suggestDZ.onclick = () => $('suggestFileInput').click();
+suggestDZ.ondragover = e => { e.preventDefault(); suggestDZ.classList.add('dragover'); };
+suggestDZ.ondragleave = () => suggestDZ.classList.remove('dragover');
+suggestDZ.ondrop = e => { e.preventDefault(); suggestDZ.classList.remove('dragover'); if (e.dataTransfer.files.length) suggestFile(e.dataTransfer.files[0]); };
+$('suggestFileInput').onchange = e => { if (e.target.files.length) suggestFile(e.target.files[0]); };
+
+async function suggestFile(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  $('suggestProgressBar').style.display = 'block';
+  $('suggestProgressFill').style.width = '30%';
+  $('suggestUploadStatus').textContent = `Uploading ${file.name}...`;
+  $('suggestUploadStatus').style.color = 'var(--text-dim)';
+  try {
+    $('suggestProgressFill').style.width = '60%';
+    const res = await fetch('/api/documents/suggest', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body: formData,
+    });
+    $('suggestProgressFill').style.width = '100%';
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Upload failed');
+    $('suggestUploadStatus').textContent = 'Submitted! An admin will review your document.';
+    $('suggestUploadStatus').style.color = 'var(--success)';
+  } catch (e) {
+    $('suggestUploadStatus').textContent = `Error: ${e.message}`;
+    $('suggestUploadStatus').style.color = 'var(--danger)';
+    $('suggestProgressFill').style.width = '0';
+  }
+}
 
 // --- Boot ---
 if (token) { initApp(); } else { showAuth(true); }

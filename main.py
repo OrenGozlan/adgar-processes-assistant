@@ -238,6 +238,81 @@ def delete_document(doc_id: int, user: User = Depends(require_admin), db: Sessio
     return {"detail": "Document deleted"}
 
 
+@app.post("/api/documents/suggest")
+async def suggest_document(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not file.filename:
+        raise HTTPException(400, "No file provided")
+    allowed = (".pdf", ".docx", ".txt")
+    if not any(file.filename.lower().endswith(ext) for ext in allowed):
+        raise HTTPException(400, f"Unsupported file type. Allowed: {', '.join(allowed)}")
+
+    content = await file.read()
+    stored_name = f"{uuid.uuid4().hex}_{file.filename}"
+    filepath = os.path.join(UPLOAD_DIR, stored_name)
+    with open(filepath, "wb") as f:
+        f.write(content)
+
+    doc = Document(
+        filename=stored_name,
+        original_name=file.filename,
+        uploaded_by=user.id,
+        chunk_count=0,
+        status="pending",
+        active=False,
+    )
+    db.add(doc)
+    db.commit()
+    db.refresh(doc)
+    return {"id": doc.id, "filename": doc.original_name, "status": "pending"}
+
+
+@app.post("/api/admin/documents/{doc_id}/approve")
+def approve_document(doc_id: int, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(404, "Document not found")
+    if doc.status != "pending":
+        raise HTTPException(400, "Document is not pending approval")
+
+    filepath = os.path.join(UPLOAD_DIR, doc.filename)
+    if not os.path.exists(filepath):
+        raise HTTPException(404, "File not found on disk")
+
+    doc.status = "processing"
+    db.commit()
+
+    with open(filepath, "rb") as f:
+        file_bytes = f.read()
+
+    import threading
+    threading.Thread(
+        target=_process_document,
+        args=(doc.id, file_bytes, doc.original_name),
+        daemon=True,
+    ).start()
+
+    return {"id": doc.id, "status": "processing"}
+
+
+@app.post("/api/admin/documents/{doc_id}/reject")
+def reject_document(doc_id: int, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(404, "Document not found")
+
+    filepath = os.path.join(UPLOAD_DIR, doc.filename)
+    if os.path.exists(filepath):
+        os.remove(filepath)
+
+    db.delete(doc)
+    db.commit()
+    return {"detail": "Document rejected and removed"}
+
+
 @app.patch("/api/admin/documents/{doc_id}/toggle")
 def toggle_document(doc_id: int, user: User = Depends(require_admin), db: Session = Depends(get_db)):
     doc = db.query(Document).filter(Document.id == doc_id).first()
