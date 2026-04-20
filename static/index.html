@@ -88,22 +88,21 @@ input,textarea{font-family:inherit;font-size:inherit}
 .followup-wrap{display:flex;gap:12px;max-width:800px;width:100%;align-self:flex-start}
 .followup-wrap.rtl{flex-direction:row-reverse;align-self:flex-end}
 .followup-spacer{width:32px;flex-shrink:0}
-.followup-bubble{background:linear-gradient(135deg,#6c63ff22,#6c63ff11);border:1px dashed var(--primary);border-radius:12px;padding:10px 16px;font-size:13px;color:var(--text-dim);cursor:pointer;max-width:600px;transition:border-color .2s,color .2s}
-.followup-bubble:hover{border-color:var(--text);color:var(--text)}
+.followup-bubble{background:linear-gradient(135deg,rgba(108,99,255,.12),rgba(108,99,255,.06));border:1px solid rgba(108,99,255,.3);border-radius:12px;padding:12px 16px;font-size:13px;color:var(--text);cursor:pointer;max-width:600px;transition:all .2s;line-height:1.5}
+.followup-bubble:hover{background:linear-gradient(135deg,rgba(108,99,255,.2),rgba(108,99,255,.1));border-color:var(--primary);transform:translateY(-1px)}
+.followup-bubble::before{content:'💬 ';font-size:14px}
 
-.warmup-overlay{position:fixed;inset:0;background:rgba(15,17,23,.92);display:flex;align-items:center;justify-content:center;z-index:90;flex-direction:column;gap:28px}
-.warmup-spinner{width:48px;height:48px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-.warmup-tip{max-width:520px;width:90vw;text-align:center;padding:32px 36px;background:linear-gradient(135deg,#1e1b4b,#312e81,#1e3a5f);border:1px solid #4f46e5;border-radius:20px;box-shadow:0 0 40px rgba(99,102,241,.15)}
-.warmup-tip .label{font-size:13px;text-transform:uppercase;letter-spacing:2px;color:#a5b4fc;margin-bottom:14px;font-weight:600}
-.warmup-tip .icon{font-size:36px;margin-bottom:12px}
-.warmup-tip .text{font-size:16px;line-height:1.7;color:#e0e7ff;min-height:52px}
-.warmup-tip .tip-actions{margin-top:20px;display:flex;gap:12px;justify-content:center}
-.warmup-tip .next-btn{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#c7d2fe;padding:8px 20px;border-radius:10px;font-size:13px;cursor:pointer;transition:all .2s}
-.warmup-tip .next-btn:hover{background:rgba(255,255,255,.18);color:#fff}
-.warmup-tip .close-btn{background:#4f46e5;border:none;color:#fff;padding:8px 24px;border-radius:10px;font-size:13px;cursor:pointer;transition:all .2s;display:none}
-.warmup-tip .close-btn:hover{background:#6366f1}
-.warmup-status{font-size:13px;color:var(--text-dim)}
+.tip-card{max-width:480px;width:100%;margin:0 auto;text-align:center;padding:28px 32px;background:linear-gradient(135deg,#1e1b4b,#312e81,#1e3a5f);border:1px solid rgba(79,70,229,.4);border-radius:20px;box-shadow:0 4px 24px rgba(99,102,241,.1)}
+.tip-card .icon{font-size:32px;margin-bottom:10px}
+.tip-card .label{font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#a5b4fc;margin-bottom:10px;font-weight:600}
+.tip-card .text{font-size:15px;line-height:1.7;color:#e0e7ff;min-height:44px}
+.tip-card .tip-actions{margin-top:16px;display:flex;gap:10px;justify-content:center}
+.tip-card .next-btn{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#c7d2fe;padding:7px 18px;border-radius:10px;font-size:12px;cursor:pointer;transition:all .2s}
+.tip-card .next-btn:hover{background:rgba(255,255,255,.18);color:#fff}
+.tip-card .close-btn{background:none;border:none;color:#818cf8;padding:7px 14px;border-radius:10px;font-size:12px;cursor:pointer;transition:all .2s}
+.tip-card .close-btn:hover{color:#c7d2fe}
+.warmup-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:20px;font-size:12px;color:#f59e0b;margin-bottom:16px}
+.warmup-badge .dot{width:6px;height:6px;border-radius:50%;background:#f59e0b;animation:pulse 1.4s infinite}
 
 .searching-indicator{display:flex;align-items:center;gap:8px;color:var(--text-dim);font-size:13px;padding:8px 0}
 .searching-indicator .dot{width:6px;height:6px;border-radius:50%;background:var(--primary);animation:pulse 1.4s infinite}
@@ -397,9 +396,9 @@ const TIPS = [
   "💡 Review your to-do list at the end of the day so tomorrow morning you can hit the ground running.",
 ];
 
-let _warmupEl = null;
 let _tipIndex = 0;
 let _modelReady = false;
+let _tipEl = null;
 
 function _shuffleTips() {
   for (let i = TIPS.length - 1; i > 0; i--) {
@@ -410,42 +409,45 @@ function _shuffleTips() {
 
 function _nextTip() {
   _tipIndex = (_tipIndex + 1) % TIPS.length;
-  if (_warmupEl) _warmupEl.querySelector('.text').textContent = TIPS[_tipIndex];
+  if (_tipEl) _tipEl.querySelector('.text').textContent = TIPS[_tipIndex];
 }
 
-function showWarmup() {
-  if (_warmupEl) return;
+function showTipInChat() {
   _shuffleTips();
   _tipIndex = 0;
-  _warmupEl = document.createElement('div');
-  _warmupEl.className = 'warmup-overlay';
-  _warmupEl.innerHTML = `
-    <div class="warmup-spinner"></div>
-    <p class="warmup-status">System is warming up...</p>
-    <div class="warmup-tip">
-      <div class="icon">✨</div>
-      <div class="label">Tip of the Day</div>
-      <div class="text">${TIPS[0]}</div>
-      <div class="tip-actions">
-        <button class="next-btn">Next tip →</button>
-        <button class="close-btn">Got it, let's go! ✓</button>
-      </div>
+  const empty = $('emptyState');
+  if (!empty) return;
+
+  _tipEl = document.createElement('div');
+  _tipEl.className = 'tip-card';
+  _tipEl.id = 'tipCard';
+  _tipEl.innerHTML = `
+    <div class="icon">✨</div>
+    <div class="label">Tip of the Day</div>
+    <div class="text">${TIPS[0]}</div>
+    <div class="tip-actions">
+      <button class="next-btn">Next tip →</button>
+      <button class="close-btn">Dismiss</button>
     </div>
   `;
-  _warmupEl.querySelector('.next-btn').onclick = _nextTip;
-  _warmupEl.querySelector('.close-btn').onclick = () => {
-    _warmupEl.remove(); _warmupEl = null;
-  };
-  document.body.appendChild(_warmupEl);
+  _tipEl.querySelector('.next-btn').onclick = _nextTip;
+  _tipEl.querySelector('.close-btn').onclick = () => { _tipEl.remove(); _tipEl = null; };
+  empty.appendChild(_tipEl);
 }
 
-function _markWarmupReady() {
-  _modelReady = true;
-  if (!_warmupEl) return;
-  _warmupEl.querySelector('.warmup-spinner').style.display = 'none';
-  _warmupEl.querySelector('.warmup-status').textContent = 'System ready!';
-  _warmupEl.querySelector('.warmup-status').style.color = 'var(--success)';
-  _warmupEl.querySelector('.close-btn').style.display = 'inline-block';
+function showWarmupBadge() {
+  const empty = $('emptyState');
+  if (!empty) return;
+  const badge = document.createElement('div');
+  badge.className = 'warmup-badge';
+  badge.id = 'warmupBadge';
+  badge.innerHTML = '<span class="dot"></span> System warming up...';
+  empty.insertBefore(badge, empty.firstChild);
+}
+
+function hideWarmupBadge() {
+  const badge = $('warmupBadge');
+  if (badge) badge.remove();
 }
 
 async function waitForWarmup() {
@@ -454,13 +456,13 @@ async function waitForWarmup() {
     const data = await res.json();
     if (data.model_ready) { _modelReady = true; return; }
   } catch {}
-  showWarmup();
+  showWarmupBadge();
   while (true) {
     await new Promise(r => setTimeout(r, 2000));
     try {
       const res = await fetch('/health');
       const data = await res.json();
-      if (data.model_ready) { _markWarmupReady(); return; }
+      if (data.model_ready) { _modelReady = true; hideWarmupBadge(); return; }
     } catch {}
   }
 }
@@ -471,6 +473,8 @@ function enterApp() {
   $('userRole').textContent = currentUser.role;
   $('chatInput').disabled = false;
   $('sendBtn').disabled = false;
+
+  showTipInChat();
 
   const tasks = [loadSessions(), loadTopQuestions(), waitForWarmup()];
   if (currentUser.role === 'admin') {
@@ -623,7 +627,16 @@ async function sendMessage() {
       const lines = buffer.split('\n');
       buffer = lines.pop();
 
+      let streamDone = false;
       for (const line of lines) {
+        if (streamDone && line.startsWith('data: ')) {
+          currentSessionId = parseInt(line.slice(6));
+          continue;
+        }
+        if (line.startsWith('event: done')) {
+          streamDone = true;
+          continue;
+        }
         if (line.startsWith('data: ')) {
           const data = line.slice(6);
           fullText += data;
@@ -641,11 +654,6 @@ async function sendMessage() {
             bubble.innerHTML = marked.parse(fullText.slice(0, separatorIdx));
           }
           scrollBottom();
-        } else if (line.startsWith('event: done')) {
-          const nextLine = lines[lines.indexOf(line) + 1];
-          if (nextLine && nextLine.startsWith('data: ')) {
-            currentSessionId = parseInt(nextLine.slice(6));
-          }
         }
       }
     }
