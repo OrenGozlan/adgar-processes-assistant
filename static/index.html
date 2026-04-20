@@ -88,6 +88,15 @@ input,textarea{font-family:inherit;font-size:inherit}
 .message.assistant.followup-msg .bubble{background:linear-gradient(135deg,rgba(108,99,255,.12),rgba(108,99,255,.06));border:1px solid rgba(108,99,255,.3);cursor:pointer;transition:all .2s}
 .message.assistant.followup-msg .bubble:hover{background:linear-gradient(135deg,rgba(108,99,255,.2),rgba(108,99,255,.1));border-color:var(--primary);transform:translateY(-1px)}
 .followup-icon{font-size:14px}
+.contacts-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:200}
+.contacts-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:24px;width:420px;max-width:90vw;max-height:80vh;overflow-y:auto}
+.contacts-card h3{margin-bottom:16px;font-size:16px}
+.contact-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px;cursor:pointer;transition:background .2s}
+.contact-row:hover{background:rgba(108,99,255,.1)}
+.contact-row .contact-info{flex:1}
+.contact-row .contact-name{font-size:14px;font-weight:500;color:var(--text)}
+.contact-row .contact-pos{font-size:12px;color:var(--text-dim)}
+.contact-row .contact-icon{font-size:18px;color:var(--primary);flex-shrink:0}
 
 .tip-card{max-width:480px;width:100%;margin:0 auto;text-align:center;padding:28px 32px;background:linear-gradient(135deg,#1e1b4b,#312e81,#1e3a5f);border:1px solid rgba(79,70,229,.4);border-radius:20px;box-shadow:0 4px 24px rgba(99,102,241,.1)}
 .tip-card .icon{font-size:32px;margin-bottom:10px}
@@ -315,6 +324,47 @@ input,textarea{font-family:inherit;font-size:inherit}
 
 <script>
 const API = '';
+const ADGAR_CONTACTS = [
+  {name:'Roy Gadish',position:'Chief Executive Officer',email:'roy@adgar.com'},
+  {name:'Liat Manor',position:'Chief Financial Officer',email:'liat@adgar.com'},
+  {name:'Etaiy Kantarowicz',position:'VP, Manager of Israel Activities',email:'etaiy@adgar.com'},
+  {name:'Slava Kagan',position:'CIO, Manager of Data Center Activity',email:'slava@adgar.com'},
+  {name:'Ran Leibovich',position:'Controller',email:'ran@adgar.com'},
+  {name:'Nir Kelner',position:'CEO, Brain Embassy',email:'nir@brainembassy.com'},
+  {name:'Yaniv Gavriel',position:'Asset Manager, Israel',email:'yanivg@adgar.com'},
+  {name:'Chris G. Tambakis',position:'CEO, North America',email:'chris@adgar.com'},
+  {name:'Michael Mevorach',position:'Country Manager, Poland',email:'Michael@adgar.pl'},
+  {name:'Oren Gozlan',position:'CEO, Greems Technologies',email:'oren@greems.io'},
+];
+
+function showContactsList(question) {
+  const overlay = document.createElement('div');
+  overlay.className = 'contacts-overlay';
+  const card = document.createElement('div');
+  card.className = 'contacts-card';
+  card.innerHTML = '<h3>Contact the right person</h3>';
+  ADGAR_CONTACTS.forEach(c => {
+    const row = document.createElement('div');
+    row.className = 'contact-row';
+    row.innerHTML = `<div class="contact-info"><div class="contact-name">${esc(c.name)}</div><div class="contact-pos">${esc(c.position)}</div></div><div class="contact-icon">✉</div>`;
+    row.onclick = () => {
+      const subject = encodeURIComponent(question);
+      window.open(`mailto:${c.email}?subject=${subject}`, '_self');
+      overlay.remove();
+    };
+    card.appendChild(row);
+  });
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'close-btn';
+  closeBtn.textContent = 'Close';
+  closeBtn.style.cssText = 'margin-top:16px;width:100%';
+  closeBtn.onclick = () => overlay.remove();
+  card.appendChild(closeBtn);
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+}
+
 let token = sessionStorage.getItem('token');
 let currentUser = null;
 let currentSessionId = null;
@@ -560,33 +610,11 @@ async function loadSession(id) {
       const sepIdx = m.content.indexOf('\n---\n');
       if (sepIdx !== -1) {
         const mainText = m.content.slice(0, sepIdx);
-        const followUp = m.content.slice(sepIdx + 5).trim();
         appendMessage('assistant', mainText);
-        if (followUp) {
-          const isEnhancement = /enhancement|שיפור תהליכים/i.test(followUp);
-          const fuDiv = appendMessage('assistant', '');
-          const fuBubble = fuDiv.querySelector('.bubble');
-          const dir = detectDir(followUp);
-          fuBubble.setAttribute('dir', dir);
-          fuBubble.style.textAlign = dir === 'rtl' ? 'right' : 'left';
-          if (dir === 'rtl') fuDiv.classList.add('rtl');
-          fuDiv.classList.add('followup-msg');
-          fuBubble.innerHTML = (isEnhancement ? '<span class="followup-icon">📝</span> ' : '<span class="followup-icon">💬</span> ') + esc(followUp);
-          fuBubble.style.cursor = 'pointer';
-          if (isEnhancement) {
-            const origQ = mainText;
-            fuBubble.onclick = async () => {
-              try {
-                await apiFetch('/api/enhancements', { method: 'POST', body: JSON.stringify({ question: origQ }) });
-                fuBubble.innerHTML = '<span class="followup-icon">✅</span> ' + (dir === 'rtl' ? 'הבקשה נשלחה! הנהלה תבדוק את זה.' : 'Request submitted! Admin will review it.');
-                fuBubble.style.cursor = 'default';
-                fuBubble.onclick = null;
-              } catch { fuBubble.innerHTML = '<span class="followup-icon">❌</span> Failed to submit request.'; }
-            };
-          } else {
-            fuBubble.onclick = () => { $('chatInput').value = followUp; sendMessage(); };
-          }
-        }
+        const prevUserMsg = messages.slice(0, messages.indexOf(m)).reverse().find(x => x.role === 'user');
+        const origQuestion = prevUserMsg ? prevUserMsg.content : mainText;
+        const dir = detectDir(mainText);
+        renderFollowUpActions(origQuestion, dir === 'rtl');
         return;
       }
     }
@@ -646,6 +674,30 @@ function appendMessage(role, content) {
   }
   $('chatArea').appendChild(div);
   return div;
+}
+
+function renderFollowUpActions(question, isRtl) {
+  const enhDiv = appendMessage('assistant', '');
+  const enhBubble = enhDiv.querySelector('.bubble');
+  enhDiv.classList.add('followup-msg');
+  if (isRtl) { enhDiv.classList.add('rtl'); enhBubble.setAttribute('dir','rtl'); enhBubble.style.textAlign='right'; }
+  enhBubble.innerHTML = '<span class="followup-icon">📝</span> ' + (isRtl ? 'רוצה לשלוח בקשה לעדכון תהליך?' : 'Request a process update?');
+  enhBubble.style.cursor = 'pointer';
+  enhBubble.onclick = async () => {
+    try {
+      await apiFetch('/api/enhancements', { method: 'POST', body: JSON.stringify({ question }) });
+      enhBubble.innerHTML = '<span class="followup-icon">✅</span> ' + (isRtl ? 'הבקשה נשלחה! הנהלה תבדוק את זה.' : 'Request submitted! Admin will review it.');
+      enhBubble.style.cursor = 'default'; enhBubble.onclick = null;
+    } catch { enhBubble.innerHTML = '<span class="followup-icon">❌</span> Failed to submit.'; }
+  };
+
+  const ctDiv = appendMessage('assistant', '');
+  const ctBubble = ctDiv.querySelector('.bubble');
+  ctDiv.classList.add('followup-msg');
+  if (isRtl) { ctDiv.classList.add('rtl'); ctBubble.setAttribute('dir','rtl'); ctBubble.style.textAlign='right'; }
+  ctBubble.innerHTML = '<span class="followup-icon">👤</span> ' + (isRtl ? 'רוצה ליצור קשר עם הגורם המתאים?' : 'Contact the right person?');
+  ctBubble.style.cursor = 'pointer';
+  ctBubble.onclick = () => showContactsList(question);
 }
 
 function scrollBottom() {
@@ -741,32 +793,10 @@ async function sendMessage() {
     const sepIdx = fullText.indexOf('\n---\n');
     if (sepIdx !== -1) {
       const mainText = fullText.slice(0, sepIdx);
-      const followUp = fullText.slice(sepIdx + 5).trim();
       bubble.innerHTML = marked.parse(mainText);
-      if (followUp) {
-        const isEnhancement = /enhancement|שיפור תהליכים/i.test(followUp);
-        const fuDiv = appendMessage('assistant', '');
-        const fuBubble = fuDiv.querySelector('.bubble');
-        const dir = detectDir(followUp);
-        fuBubble.setAttribute('dir', dir);
-        fuBubble.style.textAlign = dir === 'rtl' ? 'right' : 'left';
-        if (dir === 'rtl') fuDiv.classList.add('rtl');
-        fuDiv.classList.add('followup-msg');
-        fuBubble.innerHTML = (isEnhancement ? '<span class="followup-icon">📝</span> ' : '<span class="followup-icon">💬</span> ') + esc(followUp);
-        fuBubble.style.cursor = 'pointer';
-        if (isEnhancement) {
-          fuBubble.onclick = async () => {
-            try {
-              await apiFetch('/api/enhancements', { method: 'POST', body: JSON.stringify({ question: text }) });
-              fuBubble.innerHTML = '<span class="followup-icon">✅</span> ' + (dir === 'rtl' ? 'הבקשה נשלחה! הנהלה תבדוק את זה.' : 'Request submitted! Admin will review it.');
-              fuBubble.style.cursor = 'default';
-              fuBubble.onclick = null;
-            } catch { fuBubble.innerHTML = '<span class="followup-icon">❌</span> Failed to submit request.'; }
-          };
-        } else {
-          fuBubble.onclick = () => { $('chatInput').value = followUp; sendMessage(); };
-        }
-      }
+      const dir = detectDir(mainText);
+      const isRtl = dir === 'rtl';
+      renderFollowUpActions(text, isRtl);
     }
 
     loadSessions();
