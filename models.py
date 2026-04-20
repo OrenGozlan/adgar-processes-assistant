@@ -22,6 +22,7 @@ class Document(Base):
     uploaded_by = Column(Integer, ForeignKey("users.id"))
     chunk_count = Column(Integer, default=0)
     active = Column(Boolean, default=True)
+    status = Column(String, default="processing")
 
 
 class Chunk(Base):
