@@ -439,6 +439,8 @@ def chat_message(
     query_emb = embed_text(body.message)
     relevant_chunks = _find_relevant_chunks(db, query_emb)
 
+    is_hebrew = body.language == "he"
+
     context_text = ""
     if relevant_chunks:
         context_parts = [f"[Document chunk {i+1}]\n{c.content}" for i, c in enumerate(relevant_chunks)]
@@ -463,8 +465,6 @@ def chat_message(
     messages.append({"role": "user", "content": user_content})
 
     _update_top_questions(db, body.message)
-
-    is_hebrew = body.language == "he"
     if is_hebrew:
         system_prompt = SYSTEM_PROMPT_HEBREW
     else:
