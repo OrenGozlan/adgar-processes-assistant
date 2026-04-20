@@ -5,6 +5,7 @@ import threading
 _model = None
 _model_lock = threading.Lock()
 
+BAKED_CACHE = "/app/model_cache"
 CACHE_DIR = "/data/models" if os.path.isdir("/data") else "./models"
 
 
@@ -15,9 +16,10 @@ def _get_model():
     with _model_lock:
         if _model is not None:
             return _model
-        os.makedirs(CACHE_DIR, exist_ok=True)
         from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer("all-MiniLM-L6-v2", cache_folder=CACHE_DIR)
+        cache = BAKED_CACHE if os.path.isdir(BAKED_CACHE) else CACHE_DIR
+        os.makedirs(cache, exist_ok=True)
+        _model = SentenceTransformer("all-MiniLM-L6-v2", cache_folder=cache)
         return _model
 
 
