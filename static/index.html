@@ -123,7 +123,8 @@ input,textarea{font-family:inherit;font-size:inherit}
 /* Auth screens */
 .auth-overlay{position:fixed;inset:0;background:linear-gradient(135deg,#0f1117 0%,#1a1040 50%,#0f1117 100%);display:flex;align-items:center;justify-content:center;z-index:100}
 .auth-card{background:rgba(26,31,46,.85);backdrop-filter:blur(20px);border:1px solid rgba(99,102,241,.2);border-radius:24px;padding:48px 40px;width:400px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,.4),0 0 80px rgba(99,102,241,.08)}
-.auth-logo{text-align:center;font-size:48px;margin-bottom:16px}
+.auth-logo{text-align:center;margin-bottom:16px}
+.auth-logo img{width:120px;height:auto;filter:drop-shadow(0 0 20px rgba(108,99,255,.3))}
 .auth-card h2{text-align:center;margin-bottom:6px;font-size:22px;font-weight:700;letter-spacing:-.3px}
 .auth-card .subtitle{text-align:center;color:var(--text-dim);font-size:13px;margin-bottom:32px}
 .input-group{position:relative;margin-bottom:14px}
@@ -176,7 +177,7 @@ input,textarea{font-family:inherit;font-size:inherit}
 <!-- Auth -->
 <div id="authOverlay" class="auth-overlay">
   <div class="auth-card">
-    <div class="auth-logo">📋</div>
+    <div class="auth-logo"><img src="/static/adgar-logo.webp" alt="Adgar"></div>
     <h2 id="authTitle">Welcome Back</h2>
     <p class="subtitle">Adgar's Processes Assistant</p>
     <div id="authForm">
