@@ -446,7 +446,10 @@ def chat_message(
 
     user_content = body.message
     if context_text:
-        user_content = f"Context from company documents:\n\n{context_text}\n\n---\n\nEmployee question: {body.message}"
+        if is_hebrew:
+            user_content = f"הקשר ממסמכי החברה:\n\n{context_text}\n\n---\n\nשאלת העובד: {body.message}"
+        else:
+            user_content = f"Context from company documents:\n\n{context_text}\n\n---\n\nEmployee question: {body.message}"
 
     history = (
         db.query(Message)
