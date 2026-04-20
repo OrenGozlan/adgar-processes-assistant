@@ -122,18 +122,27 @@ input,textarea{font-family:inherit;font-size:inherit}
 .lang-select:focus{border-color:var(--primary)}
 
 /* Auth screens */
-.auth-overlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:100}
-.auth-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:40px;width:380px;max-width:90vw}
-.auth-card h2{text-align:center;margin-bottom:8px;font-size:20px}
-.auth-card .subtitle{text-align:center;color:var(--text-dim);font-size:13px;margin-bottom:24px}
-.auth-card label{display:block;font-size:12px;color:var(--text-dim);margin-bottom:4px;margin-top:16px}
-.auth-card input,.auth-card select{width:100%;padding:10px 14px;background:var(--input-bg);border:1px solid var(--border);border-radius:8px;color:var(--text);outline:none}
-.auth-card input:focus,.auth-card select:focus{border-color:var(--primary)}
-.auth-card .auth-btn{width:100%;padding:12px;background:var(--primary);color:#fff;border-radius:8px;font-size:14px;font-weight:500;margin-top:24px}
-.auth-card .auth-btn:hover{background:var(--primary-hover)}
-.auth-card .toggle-link{text-align:center;margin-top:16px;font-size:13px;color:var(--text-dim)}
-.auth-card .toggle-link a{color:var(--primary);cursor:pointer;text-decoration:none}
-.auth-card .error{color:var(--danger);font-size:12px;margin-top:8px;text-align:center}
+.auth-overlay{position:fixed;inset:0;background:linear-gradient(135deg,#0f1117 0%,#1a1040 50%,#0f1117 100%);display:flex;align-items:center;justify-content:center;z-index:100}
+.auth-card{background:rgba(26,31,46,.85);backdrop-filter:blur(20px);border:1px solid rgba(99,102,241,.2);border-radius:24px;padding:48px 40px;width:400px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,.4),0 0 80px rgba(99,102,241,.08)}
+.auth-logo{text-align:center;font-size:48px;margin-bottom:16px}
+.auth-card h2{text-align:center;margin-bottom:6px;font-size:22px;font-weight:700;letter-spacing:-.3px}
+.auth-card .subtitle{text-align:center;color:var(--text-dim);font-size:13px;margin-bottom:32px}
+.input-group{position:relative;margin-bottom:14px}
+.input-group .input-icon{position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:14px;opacity:.5;pointer-events:none}
+.auth-card input,.auth-card select{width:100%;padding:13px 14px 13px 42px;background:rgba(30,35,51,.8);border:1px solid var(--border);border-radius:12px;color:var(--text);outline:none;font-size:14px;transition:border-color .2s,box-shadow .2s}
+.auth-card input:focus,.auth-card select:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(108,99,255,.15)}
+.auth-card input::placeholder{color:var(--text-dim);opacity:.6}
+.auth-card .auth-btn{width:100%;padding:14px;background:linear-gradient(135deg,#6c63ff,#4f46e5);color:#fff;border-radius:12px;font-size:15px;font-weight:600;margin-top:8px;transition:transform .15s,box-shadow .2s;letter-spacing:.3px}
+.auth-card .auth-btn:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(108,99,255,.35)}
+.auth-card .auth-btn:active{transform:translateY(0)}
+.auth-card .auth-btn:disabled{opacity:.5;transform:none;box-shadow:none}
+.auth-divider{text-align:center;margin:20px 0 4px;position:relative}
+.auth-divider::before{content:'';position:absolute;left:0;right:0;top:50%;height:1px;background:var(--border)}
+.auth-divider span{background:rgba(26,31,46,.85);padding:0 16px;position:relative;color:var(--text-dim);font-size:12px}
+.auth-card .toggle-link{text-align:center;margin-top:12px;font-size:13px;color:var(--text-dim)}
+.auth-card .toggle-link a{color:#a5b4fc;cursor:pointer;text-decoration:none;font-weight:500}
+.auth-card .toggle-link a:hover{color:#c7d2fe}
+.auth-card .error{color:var(--danger);font-size:12px;margin-top:8px;text-align:center;padding:8px;background:rgba(255,71,87,.1);border-radius:8px}
 
 /* Upload modal */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:200}
@@ -168,26 +177,36 @@ input,textarea{font-family:inherit;font-size:inherit}
 <!-- Auth -->
 <div id="authOverlay" class="auth-overlay">
   <div class="auth-card">
-    <h2 id="authTitle">Sign In</h2>
-    <p class="subtitle">Adgar's Processes Personal Assistant</p>
+    <div class="auth-logo">📋</div>
+    <h2 id="authTitle">Welcome Back</h2>
+    <p class="subtitle">Adgar's Processes Assistant</p>
     <div id="authForm">
-      <label>Email</label>
-      <input type="email" id="authEmail" placeholder="you@company.com">
-      <label>Password</label>
-      <input type="password" id="authPassword" placeholder="Enter password">
+      <div class="input-group">
+        <span class="input-icon">✉</span>
+        <input type="email" id="authEmail" placeholder="you@adgar.com">
+      </div>
+      <div class="input-group">
+        <span class="input-icon">🔒</span>
+        <input type="password" id="authPassword" placeholder="Password">
+      </div>
       <div id="registerFields" style="display:none">
-        <label>Role</label>
-        <select id="authRole">
-          <option value="employee">Employee</option>
-          <option value="admin">Admin</option>
-        </select>
+        <div class="input-group">
+          <span class="input-icon">👤</span>
+          <select id="authRole">
+            <option value="employee">Employee</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
         <div id="adminCodeField" style="display:none">
-          <label>Admin Registration Code</label>
-          <input type="password" id="authAdminCode" placeholder="Enter admin code">
+          <div class="input-group">
+            <span class="input-icon">🔑</span>
+            <input type="password" id="authAdminCode" placeholder="Admin code">
+          </div>
         </div>
       </div>
       <div id="authError" class="error" style="display:none"></div>
       <button class="auth-btn" id="authSubmit">Sign In</button>
+      <div class="auth-divider"><span>or</span></div>
       <div class="toggle-link">
         <span id="authToggleText">Don't have an account? </span>
         <a id="authToggle">Register</a>
@@ -275,8 +294,8 @@ function showAuth(show) {
 
 $('authToggle').onclick = () => {
   isLogin = !isLogin;
-  $('authTitle').textContent = isLogin ? 'Sign In' : 'Register';
-  $('authSubmit').textContent = isLogin ? 'Sign In' : 'Register';
+  $('authTitle').textContent = isLogin ? 'Welcome Back' : 'Create Account';
+  $('authSubmit').textContent = isLogin ? 'Sign In' : 'Create Account';
   $('authToggleText').textContent = isLogin ? "Don't have an account? " : "Already have an account? ";
   $('authToggle').textContent = isLogin ? 'Register' : 'Sign In';
   $('registerFields').style.display = isLogin ? 'none' : 'block';
@@ -431,7 +450,7 @@ function _markWarmupReady() {
 
 async function waitForWarmup() {
   try {
-    const res = await fetch('/api/health');
+    const res = await fetch('/health');
     const data = await res.json();
     if (data.model_ready) { _modelReady = true; return; }
   } catch {}
@@ -439,7 +458,7 @@ async function waitForWarmup() {
   while (true) {
     await new Promise(r => setTimeout(r, 2000));
     try {
-      const res = await fetch('/api/health');
+      const res = await fetch('/health');
       const data = await res.json();
       if (data.model_ready) { _markWarmupReady(); return; }
     } catch {}
