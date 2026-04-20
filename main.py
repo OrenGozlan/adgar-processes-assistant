@@ -295,32 +295,39 @@ SYSTEM_PROMPT_TEMPLATE = (
     "- Be EXTREMELY concise — 1-2 sentences max. Give ONLY the direct answer. No introductions, no summaries, no \"sure!\" or \"great question!\". "
     "If listing steps, use short bullet points (max 4). Never repeat the question back.\n"
     "- You MUST reply in: {language}.\n"
-    "- If replying in Hebrew:\n"
-    "  CRITICAL RULE: NEVER copy or quote phrases from the documents. The documents are written in formal/legal Hebrew. "
-    "You MUST completely rephrase everything in your own words using casual, spoken Israeli Hebrew. "
-    "Pretend you read the document, closed it, and are now explaining it to a friend at work.\n\n"
-    "  REPHRASE EXAMPLES — document says → you say:\n"
-    "  - \"העובד נדרש להגיש בקשה באמצעות המערכת\" → \"תגיש בקשה דרך המערכת\"\n"
-    "  - \"יש לוודא כי כל המסמכים הנדרשים צורפו\" → \"תוודא שצירפת את כל המסמכים\"\n"
-    "  - \"ניתן לפנות אל מחלקת משאבי אנוש\" → \"אפשר לפנות למשאבי אנוש\"\n"
-    "  - \"בהתאם למדיניות החברה, על העובד להודיע\" → \"לפי הנהלים, צריך להודיע\"\n"
-    "  - \"במידה והעובד מעוניין לממש את זכותו\" → \"אם אתה רוצה לנצל את זה\"\n"
-    "  - \"לצורך קבלת אישור יש להעביר טופס\" → \"כדי לקבל אישור, תעביר טופס\"\n"
-    "  - \"החברה מעמידה לרשות העובדים\" → \"החברה נותנת לעובדים\"\n"
-    "  - \"הזכאות מותנית בעמידה בתנאים\" → \"אפשר לקבל את זה אם עומדים בתנאים\"\n\n"
-    "  WORD REPLACEMENTS — never use the left, always use the right:\n"
-    "  יש צורך/נדרש → צריך | ניתן → אפשר | מאחר/הואיל → בגלל | על מנת → כדי\n"
-    "  באשר ל → לגבי | במידה ו → אם | מומלץ → עדיף/כדאי | יש לשלוח → תשלח\n"
-    "  באמצעות → דרך | לצורך → כדי/בשביל | בהתאם ל → לפי | עובד/עובדת → אתה/את\n"
-    "  מעוניין → רוצה | הינו/הינה → זה/זאת | בכפוף ל → בתנאי ש | לאחר → אחרי\n"
-    "  טרם → לפני | אולם → אבל | לפיכך → אז | כאמור → כמו שאמרנו\n\n"
-    "  TONE: Talk like a helpful Israeli colleague. Use אתה/את (second person). "
-    "Short sentences. No fancy words. No passive voice.\n"
     "- If replying in Polish: use everyday conversational Polish.\n"
     "- IMPORTANT: Your response MUST end with a line containing exactly `---` followed by a short follow-up suggestion "
     "(a question to dig deeper, or suggest who to contact). "
     "This follow-up line will be displayed as a separate clickable bubble. Write it in the same language as the answer.\n"
     "- Never switch languages mid-answer."
+)
+
+SYSTEM_PROMPT_EN_FOR_HEBREW = (
+    "You are Adgar's Processes Personal Assistant. You help employees understand company "
+    "procedures and guidelines.\n\n"
+    "Rules:\n"
+    "- Answer ONLY based on the provided context. If the answer is not in the documents, say so honestly. Never make up procedures.\n"
+    "- Be EXTREMELY concise — 1-2 sentences max. Give ONLY the direct answer. No introductions, no summaries.\n"
+    "- If listing steps, use short bullet points (max 4). Never repeat the question back.\n"
+    "- Reply in ENGLISH even though the user may ask in Hebrew. The answer will be translated separately.\n"
+    "- IMPORTANT: Your response MUST end with a line containing exactly `---` followed by a short follow-up suggestion in English "
+    "(a question to dig deeper, or suggest who to contact)."
+)
+
+HEBREW_TRANSLATE_PROMPT = (
+    "Translate the following English text to casual, spoken Israeli Hebrew (עברית מדוברת).\n\n"
+    "CRITICAL RULES:\n"
+    "- Write EXACTLY like a 30-year-old Israeli talks to a colleague at work.\n"
+    "- Use אתה/את (second person), never impersonal.\n"
+    "- Short punchy sentences. No fancy words.\n"
+    "- NEVER use formal Hebrew. Specifically:\n"
+    "  צריך not יש צורך | אפשר not ניתן | בגלל not מאחר | כדי not על מנת\n"
+    "  לגבי not באשר ל | אם not במידה ו | עדיף not מומלץ | דרך not באמצעות\n"
+    "  אחרי not לאחר | לפני not טרם | אבל not אולם | אז not לפיכך\n"
+    "  רוצה not מעוניין | לפי not בהתאם ל | בשביל not לצורך\n"
+    "- Keep the `---` separator line exactly as is. Translate the follow-up suggestion too.\n"
+    "- Output ONLY the Hebrew translation, nothing else.\n\n"
+    "English text:\n{text}"
 )
 
 
@@ -380,8 +387,12 @@ def chat_message(
 
     _update_top_questions(db, body.message)
 
-    lang_name = LANGUAGE_MAP.get(body.language, "English")
-    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(language=lang_name)
+    is_hebrew = body.language == "he"
+    if is_hebrew:
+        system_prompt = SYSTEM_PROMPT_EN_FOR_HEBREW
+    else:
+        lang_name = LANGUAGE_MAP.get(body.language, "English")
+        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(language=lang_name)
 
     client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
     session_id = session.id
@@ -396,7 +407,21 @@ def chat_message(
         ) as stream:
             for text in stream.text_stream:
                 full_response += text
-                yield f"data: {text}\n\n"
+                if not is_hebrew:
+                    yield f"data: {text}\n\n"
+
+        if is_hebrew:
+            hebrew_response = ""
+            with client.messages.stream(
+                model="claude-haiku-4-5-20241022",
+                max_tokens=2048,
+                system="You are a professional English-to-Hebrew translator specializing in casual Israeli Hebrew.",
+                messages=[{"role": "user", "content": HEBREW_TRANSLATE_PROMPT.format(text=full_response)}],
+            ) as stream:
+                for text in stream.text_stream:
+                    hebrew_response += text
+                    yield f"data: {text}\n\n"
+            full_response = hebrew_response
 
         assistant_msg = Message(session_id=session_id, role="assistant", content=full_response)
         db_inner = next(get_db())
