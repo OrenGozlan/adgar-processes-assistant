@@ -43,8 +43,11 @@ def startup():
 
 
 def _startup_background():
+    import time
+    t0 = time.time()
     from embeddings import _get_model
     _get_model()
+    print(f"[startup] Model loaded in {time.time()-t0:.1f}s")
     _retry_stuck_documents()
 
 
