@@ -614,7 +614,7 @@ async function loadSession(id) {
         const prevUserMsg = messages.slice(0, messages.indexOf(m)).reverse().find(x => x.role === 'user');
         const origQuestion = prevUserMsg ? prevUserMsg.content : mainText;
         const dir = detectDir(mainText);
-        renderFollowUpActions(origQuestion, dir === 'rtl');
+        renderFollowUpActions(origQuestion, dir === 'rtl', mainText);
         return;
       }
     }
@@ -676,20 +676,24 @@ function appendMessage(role, content) {
   return div;
 }
 
-function renderFollowUpActions(question, isRtl) {
-  const enhDiv = appendMessage('assistant', '');
-  const enhBubble = enhDiv.querySelector('.bubble');
-  enhDiv.classList.add('followup-msg');
-  if (isRtl) { enhDiv.classList.add('rtl'); enhBubble.setAttribute('dir','rtl'); enhBubble.style.textAlign='right'; }
-  enhBubble.innerHTML = '<span class="followup-icon">📝</span> ' + (isRtl ? 'רוצה לשלוח בקשה לעדכון תהליך?' : 'Request a process update?');
-  enhBubble.style.cursor = 'pointer';
-  enhBubble.onclick = async () => {
-    try {
-      await apiFetch('/api/enhancements', { method: 'POST', body: JSON.stringify({ question }) });
-      enhBubble.innerHTML = '<span class="followup-icon">✅</span> ' + (isRtl ? 'הבקשה נשלחה! הנהלה תבדוק את זה.' : 'Request submitted! Admin will review it.');
-      enhBubble.style.cursor = 'default'; enhBubble.onclick = null;
-    } catch { enhBubble.innerHTML = '<span class="followup-icon">❌</span> Failed to submit.'; }
-  };
+function renderFollowUpActions(question, isRtl, answerText) {
+  const noAnswer = /no precise answer|אין תשובה מדויקת/i.test(answerText || '');
+
+  if (noAnswer) {
+    const enhDiv = appendMessage('assistant', '');
+    const enhBubble = enhDiv.querySelector('.bubble');
+    enhDiv.classList.add('followup-msg');
+    if (isRtl) { enhDiv.classList.add('rtl'); enhBubble.setAttribute('dir','rtl'); enhBubble.style.textAlign='right'; }
+    enhBubble.innerHTML = '<span class="followup-icon">📝</span> ' + (isRtl ? 'רוצה לשלוח בקשה לעדכון תהליך?' : 'Request a process update?');
+    enhBubble.style.cursor = 'pointer';
+    enhBubble.onclick = async () => {
+      try {
+        await apiFetch('/api/enhancements', { method: 'POST', body: JSON.stringify({ question }) });
+        enhBubble.innerHTML = '<span class="followup-icon">✅</span> ' + (isRtl ? 'הבקשה נשלחה! הנהלה תבדוק את זה.' : 'Request submitted! Admin will review it.');
+        enhBubble.style.cursor = 'default'; enhBubble.onclick = null;
+      } catch { enhBubble.innerHTML = '<span class="followup-icon">❌</span> Failed to submit.'; }
+    };
+  }
 
   const ctDiv = appendMessage('assistant', '');
   const ctBubble = ctDiv.querySelector('.bubble');
@@ -796,7 +800,7 @@ async function sendMessage() {
       bubble.innerHTML = marked.parse(mainText);
       const dir = detectDir(mainText);
       const isRtl = dir === 'rtl';
-      renderFollowUpActions(text, isRtl);
+      renderFollowUpActions(text, isRtl, mainText);
     }
 
     loadSessions();
