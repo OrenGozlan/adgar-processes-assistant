@@ -67,11 +67,11 @@ input,textarea{font-family:inherit;font-size:inherit}
 .empty-state .logo{width:180px;opacity:.85}
 .empty-state .logo img{width:100%;height:auto}
 
-.message{display:flex;gap:12px;max-width:800px;width:100%}
+.message{display:flex;gap:12px;max-width:800px}
 .message.user{align-self:flex-end;flex-direction:row-reverse}
 .message.assistant{align-self:flex-start}
 .message.assistant.rtl{flex-direction:row-reverse;align-self:flex-end}
-.message.user.rtl{align-self:flex-start}
+.message.user.rtl{flex-direction:row;align-self:flex-start}
 .message .avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
 .message.assistant .avatar{background:var(--primary);color:#fff}
 .message.user .avatar{background:var(--card);color:var(--text-dim)}
