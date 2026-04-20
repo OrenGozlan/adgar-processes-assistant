@@ -20,7 +20,7 @@ def get_db():
 
 
 def init_db():
-    from models import User, Document, Chunk, ChatSession, Message, TopQuestion  # noqa: F401
+    from models import User, Document, Chunk, ChatSession, Message, TopQuestion, ProcessEnhancement  # noqa: F401
     Base.metadata.create_all(bind=engine)
     _migrate(engine)
 
