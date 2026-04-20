@@ -693,7 +693,7 @@ async function sendMessage() {
           continue;
         }
         if (line.startsWith('data: ')) {
-          const data = line.slice(6);
+          const data = line.slice(6).replace(/\\n/g, '\n');
           fullText += data;
           if (!dirDetected && fullText.length > 5) {
             const dir = detectDir(fullText);

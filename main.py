@@ -476,7 +476,8 @@ def chat_message(
         ) as stream:
             for text in stream.text_stream:
                 full_response += text
-                yield f"data: {text}\n\n"
+                safe = text.replace("\n", "\\n")
+                yield f"data: {safe}\n\n"
 
         assistant_msg = Message(session_id=session_id, role="assistant", content=full_response)
         db_inner = next(get_db())
