@@ -439,7 +439,8 @@ def chat_message(
     query_emb = embed_text(body.message)
     relevant_chunks = _find_relevant_chunks(db, query_emb)
 
-    is_hebrew = body.language == "he"
+    has_hebrew_chars = bool(re.search(r'[\u0590-\u05FF]', body.message))
+    is_hebrew = body.language == "he" or has_hebrew_chars
 
     context_text = ""
     if relevant_chunks:
