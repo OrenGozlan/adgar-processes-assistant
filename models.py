@@ -63,3 +63,12 @@ class TopQuestion(Base):
     question_text = Column(String, nullable=False, unique=True)
     count = Column(Integer, default=1)
     last_asked = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class ProcessEnhancement(Base):
+    __tablename__ = "process_enhancements"
+    id = Column(Integer, primary_key=True)
+    question = Column(Text, nullable=False)
+    submitted_by = Column(Integer, ForeignKey("users.id"))
+    status = Column(String, default="open")
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

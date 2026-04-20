@@ -551,6 +551,7 @@ async function loadSession(id) {
         const followUp = m.content.slice(sepIdx + 5).trim();
         appendMessage('assistant', mainText);
         if (followUp) {
+          const isEnhancement = /enhancement|שיפור תהליכים/i.test(followUp);
           const fuDiv = appendMessage('assistant', '');
           const fuBubble = fuDiv.querySelector('.bubble');
           const dir = detectDir(followUp);
@@ -558,9 +559,21 @@ async function loadSession(id) {
           fuBubble.style.textAlign = dir === 'rtl' ? 'right' : 'left';
           if (dir === 'rtl') fuDiv.classList.add('rtl');
           fuDiv.classList.add('followup-msg');
-          fuBubble.innerHTML = '<span class="followup-icon">💬</span> ' + esc(followUp);
+          fuBubble.innerHTML = (isEnhancement ? '<span class="followup-icon">📝</span> ' : '<span class="followup-icon">💬</span> ') + esc(followUp);
           fuBubble.style.cursor = 'pointer';
-          fuBubble.onclick = () => { $('chatInput').value = followUp; sendMessage(); };
+          if (isEnhancement) {
+            const origQ = mainText;
+            fuBubble.onclick = async () => {
+              try {
+                await apiFetch('/api/enhancements', { method: 'POST', body: JSON.stringify({ question: origQ }) });
+                fuBubble.innerHTML = '<span class="followup-icon">✅</span> ' + (dir === 'rtl' ? 'הבקשה נשלחה! הנהלה תבדוק את זה.' : 'Request submitted! Admin will review it.');
+                fuBubble.style.cursor = 'default';
+                fuBubble.onclick = null;
+              } catch { fuBubble.innerHTML = '<span class="followup-icon">❌</span> Failed to submit request.'; }
+            };
+          } else {
+            fuBubble.onclick = () => { $('chatInput').value = followUp; sendMessage(); };
+          }
         }
         return;
       }
@@ -719,6 +732,7 @@ async function sendMessage() {
       const followUp = fullText.slice(sepIdx + 5).trim();
       bubble.innerHTML = marked.parse(mainText);
       if (followUp) {
+        const isEnhancement = /enhancement|שיפור תהליכים/i.test(followUp);
         const fuDiv = appendMessage('assistant', '');
         const fuBubble = fuDiv.querySelector('.bubble');
         const dir = detectDir(followUp);
@@ -726,9 +740,20 @@ async function sendMessage() {
         fuBubble.style.textAlign = dir === 'rtl' ? 'right' : 'left';
         if (dir === 'rtl') fuDiv.classList.add('rtl');
         fuDiv.classList.add('followup-msg');
-        fuBubble.innerHTML = '<span class="followup-icon">💬</span> ' + esc(followUp);
+        fuBubble.innerHTML = (isEnhancement ? '<span class="followup-icon">📝</span> ' : '<span class="followup-icon">💬</span> ') + esc(followUp);
         fuBubble.style.cursor = 'pointer';
-        fuBubble.onclick = () => { $('chatInput').value = followUp; sendMessage(); };
+        if (isEnhancement) {
+          fuBubble.onclick = async () => {
+            try {
+              await apiFetch('/api/enhancements', { method: 'POST', body: JSON.stringify({ question: text }) });
+              fuBubble.innerHTML = '<span class="followup-icon">✅</span> ' + (dir === 'rtl' ? 'הבקשה נשלחה! הנהלה תבדוק את זה.' : 'Request submitted! Admin will review it.');
+              fuBubble.style.cursor = 'default';
+              fuBubble.onclick = null;
+            } catch { fuBubble.innerHTML = '<span class="followup-icon">❌</span> Failed to submit request.'; }
+          };
+        } else {
+          fuBubble.onclick = () => { $('chatInput').value = followUp; sendMessage(); };
+        }
       }
     }
 

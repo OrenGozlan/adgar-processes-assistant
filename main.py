@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from database import get_db, init_db
-from models import User, Document, Chunk, ChatSession, Message, TopQuestion
+from models import User, Document, Chunk, ChatSession, Message, TopQuestion, ProcessEnhancement
 from auth import (
     hash_password, verify_password, create_token,
     get_current_user, require_admin,
@@ -366,7 +366,11 @@ SYSTEM_PROMPT_TEMPLATE = (
     "You are Adgar's Processes Personal Assistant. You help employees understand company "
     "procedures and guidelines.\n\n"
     "Rules:\n"
-    "- Answer ONLY based on the provided context. If the answer is not in the documents, say so honestly. Never make up procedures.\n"
+    "- Answer ONLY based on the provided context. Never make up procedures.\n"
+    "- If the answer is NOT in the provided documents, reply with EXACTLY: "
+    "\"There is no precise answer to that question in the current processes.\"\n"
+    "  Then add `---` followed by EXACTLY: \"Would you like to submit this as a process enhancement request?\"\n"
+    "  Do NOT add anything else when the answer is not found.\n"
     "- Be EXTREMELY concise — 1-2 sentences max. Give ONLY the direct answer. No introductions, no summaries, no \"sure!\" or \"great question!\". "
     "If listing steps, use short bullet points (max 4). Never repeat the question back.\n"
     "- You MUST reply in: {language}.\n"
@@ -380,7 +384,10 @@ SYSTEM_PROMPT_TEMPLATE = (
 SYSTEM_PROMPT_HEBREW = (
     "אתה העוזר האישי של אדגר לנהלים ותהליכים. אתה עוזר לעובדים להבין נהלים של החברה.\n\n"
     "כללים:\n"
-    "- תענה רק לפי המסמכים שניתנו לך. אם התשובה לא במסמכים, תגיד בכנות שאין לך מידע על זה.\n"
+    "- תענה רק לפי המסמכים שניתנו לך. אל תמציא נהלים.\n"
+    "- אם התשובה לא נמצאת במסמכים, תענה בדיוק: \"אין תשובה מדויקת לשאלה הזו בנהלים הקיימים.\"\n"
+    "  ואז תוסיף `---` ואחריו בדיוק: \"רוצה לשלוח את זה כבקשה לשיפור תהליכים?\"\n"
+    "  אל תוסיף שום דבר אחר כשאין תשובה.\n"
     "- תהיה קצר ולעניין — משפט או שניים מקסימום. תיתן רק את התשובה הישירה.\n"
     "- אם צריך שלבים, תשתמש בנקודות קצרות (עד 4). לא לחזור על השאלה.\n"
     "- חובה לכתוב בעברית מדוברת ישראלית. בדיוק כמו שמדברים במשרד.\n"
@@ -538,6 +545,50 @@ def delete_session(session_id: int, user: User = Depends(get_current_user), db: 
 def top_questions(db: Session = Depends(get_db)):
     questions = db.query(TopQuestion).order_by(TopQuestion.count.desc()).limit(5).all()
     return [{"question": q.question_text, "count": q.count} for q in questions]
+
+
+# --------------- Process Enhancements ---------------
+
+class EnhancementBody(BaseModel):
+    question: str
+
+
+@app.post("/api/enhancements")
+def submit_enhancement(
+    body: EnhancementBody,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    enhancement = ProcessEnhancement(question=body.question, submitted_by=user.id)
+    db.add(enhancement)
+    db.commit()
+    return {"id": enhancement.id, "status": "open"}
+
+
+@app.get("/api/admin/enhancements")
+def list_enhancements(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    items = db.query(ProcessEnhancement).order_by(ProcessEnhancement.created_at.desc()).all()
+    result = []
+    for e in items:
+        submitter = db.query(User).filter(User.id == e.submitted_by).first()
+        result.append({
+            "id": e.id,
+            "question": e.question,
+            "submitted_by": submitter.email if submitter else "unknown",
+            "status": e.status,
+            "created_at": e.created_at.isoformat(),
+        })
+    return result
+
+
+@app.delete("/api/admin/enhancements/{item_id}")
+def dismiss_enhancement(item_id: int, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    item = db.query(ProcessEnhancement).filter(ProcessEnhancement.id == item_id).first()
+    if not item:
+        raise HTTPException(404, "Not found")
+    db.delete(item)
+    db.commit()
+    return {"detail": "Dismissed"}
 
 
 # --------------- Static frontend ---------------
