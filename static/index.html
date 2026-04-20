@@ -63,9 +63,9 @@ input,textarea{font-family:inherit;font-size:inherit}
 
 /* Chat area */
 .chat-area{flex:1;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:16px}
-.empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
-.empty-state h1{font-size:24px;font-weight:600;margin-bottom:8px}
-.empty-state p{color:var(--text-dim);font-size:14px}
+.empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:24px}
+.empty-state .logo{width:180px;opacity:.85}
+.empty-state .logo img{width:100%;height:auto}
 
 .message{display:flex;gap:12px;max-width:800px;width:100%}
 .message.user{align-self:flex-end;flex-direction:row-reverse}
@@ -260,8 +260,7 @@ input,textarea{font-family:inherit;font-size:inherit}
     <div class="top-bar" id="topBar"></div>
     <div class="chat-area" id="chatArea">
       <div class="empty-state" id="emptyState">
-        <h1>Adgar's Processes</h1>
-        <p>Ask me anything about our company procedures</p>
+        <div class="logo"><img src="/static/adgar-logo.webp" alt="Adgar"></div>
       </div>
     </div>
     <div class="input-area">
@@ -520,7 +519,8 @@ async function loadSession(id) {
 $('newChatBtn').onclick = () => { currentSessionId = null; showEmpty(); loadSessions(); };
 
 function showEmpty() {
-  $('chatArea').innerHTML = '<div class="empty-state" id="emptyState"><h1>Adgar\'s Processes</h1><p>Ask me anything about our company procedures</p></div>';
+  $('chatArea').innerHTML = '<div class="empty-state" id="emptyState"><div class="logo"><img src="/static/adgar-logo.webp" alt="Adgar"></div></div>';
+  showTipInChat();
 }
 
 // --- Top Questions ---
