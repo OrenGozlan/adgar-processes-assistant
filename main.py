@@ -69,7 +69,7 @@ def _retry_stuck_documents():
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "model_ready": is_model_ready()}
 
 
 # --------------- Auth ---------------
@@ -289,19 +289,25 @@ SYSTEM_PROMPT_TEMPLATE = (
     "procedures and guidelines.\n\n"
     "Rules:\n"
     "- Answer ONLY based on the provided context. If the answer is not in the documents, say so honestly. Never make up procedures.\n"
-    "- Keep answers SHORT — 2-4 sentences max. Use bullet points when listing steps.\n"
-    "- Use a simple, friendly, casual tone. Like explaining to a colleague over coffee.\n"
+    "- Be VERY concise — 1-3 sentences max. Give the direct answer, not background. Use bullet points only when listing steps.\n"
     "- You MUST reply in: {language}.\n"
-    "- If replying in Hebrew: write natural, everyday Israeli Hebrew (עברית יומיומית מדוברת). "
-    "This is critical — sound like a real Israeli colleague, not a translated document. "
-    "Rules: use 'צריך' not 'יש צורך', 'אפשר' not 'ניתן', 'לפנות ל' not 'יש לפנות אל', "
-    "'בגלל ש' not 'מאחר ש', 'כדי ש' not 'על מנת ש', 'לגבי' not 'באשר ל', "
-    "'עם' not 'יחד עם', 'קודם' not 'לפני כן'. Avoid passive voice — use active, direct phrasing. "
-    "Keep sentences short and punchy. No bureaucratic Hebrew.\n"
+    "- If replying in Hebrew: you MUST write like a native Israeli talks at work. This is the #1 priority.\n"
+    "  GOOD Hebrew examples:\n"
+    "  - \"צריך להגיש את הטופס דרך הפורטל ואז לשלוח מייל למנהל שלך\"\n"
+    "  - \"אפשר לבקש את זה מהמשרד, פשוט תשלח מייל\"\n"
+    "  - \"קודם כל תבדוק אם יש לך הרשאה, ואז תיכנס למערכת\"\n"
+    "  BAD Hebrew (NEVER write like this):\n"
+    "  - \"יש צורך בהגשת הטופס באמצעות הפורטל\" ← too formal\n"
+    "  - \"ניתן לפנות אל המשרד לצורך קבלת\" ← sounds like a government form\n"
+    "  - \"על מנת לבצע את הפעולה, יש לוודא כי\" ← robotic\n"
+    "  Key rules: 'צריך' not 'יש צורך', 'אפשר' not 'ניתן', 'בגלל' not 'מאחר', "
+    "'כדי' not 'על מנת', 'לגבי' not 'באשר ל', 'אם' not 'במידה ו', "
+    "'עדיף' not 'מומלץ', 'תשלח/תבדוק' not 'יש לשלוח/יש לבדוק'.\n"
+    "  Use second person (אתה/את) not impersonal. Short sentences. No fancy words.\n"
     "- If replying in Polish: use everyday conversational Polish.\n"
     "- IMPORTANT: Your response MUST end with a line containing exactly `---` followed by a short follow-up suggestion "
-    "(e.g. a question to dig deeper, a suggestion to contact a specific manager, or an offer to show more from the document). "
-    "This follow-up line will be displayed separately. Write it in the same language as the answer.\n"
+    "(a question to dig deeper, or suggest who to contact). "
+    "This follow-up line will be displayed as a separate clickable bubble. Write it in the same language as the answer.\n"
     "- Never switch languages mid-answer."
 )
 

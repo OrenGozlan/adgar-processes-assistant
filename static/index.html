@@ -67,10 +67,11 @@ input,textarea{font-family:inherit;font-size:inherit}
 .empty-state h1{font-size:24px;font-weight:600;margin-bottom:8px}
 .empty-state p{color:var(--text-dim);font-size:14px}
 
-.message{display:flex;gap:12px;max-width:800px}
+.message{display:flex;gap:12px;max-width:800px;width:100%}
 .message.user{align-self:flex-end;flex-direction:row-reverse}
-.message.rtl{flex-direction:row-reverse;align-self:flex-end}
-.message.rtl.user{flex-direction:row;align-self:flex-start}
+.message.assistant{align-self:flex-start}
+.message.assistant.rtl{flex-direction:row-reverse;align-self:flex-end}
+.message.user.rtl{align-self:flex-start}
 .message .avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
 .message.assistant .avatar{background:var(--primary);color:#fff}
 .message.user .avatar{background:var(--card);color:var(--text-dim)}
@@ -84,8 +85,19 @@ input,textarea{font-family:inherit;font-size:inherit}
 .message .bubble pre code{background:none;padding:0}
 .message .bubble ul,.message .bubble ol{padding-left:20px;margin-bottom:8px}
 .message .bubble[dir="rtl"] ul,.message .bubble[dir="rtl"] ol{padding-left:0;padding-right:20px}
-.followup-bubble{background:var(--primary);background:linear-gradient(135deg,#6c63ff22,#6c63ff11);border:1px dashed var(--primary);border-radius:12px;padding:10px 16px;font-size:13px;color:var(--text-dim);cursor:pointer;margin-top:4px;max-width:600px;transition:border-color .2s}
+.followup-wrap{display:flex;gap:12px;max-width:800px;width:100%;align-self:flex-start}
+.followup-wrap.rtl{flex-direction:row-reverse;align-self:flex-end}
+.followup-spacer{width:32px;flex-shrink:0}
+.followup-bubble{background:linear-gradient(135deg,#6c63ff22,#6c63ff11);border:1px dashed var(--primary);border-radius:12px;padding:10px 16px;font-size:13px;color:var(--text-dim);cursor:pointer;max-width:600px;transition:border-color .2s,color .2s}
 .followup-bubble:hover{border-color:var(--text);color:var(--text)}
+
+.warmup-overlay{position:fixed;inset:0;background:rgba(15,17,23,.92);display:flex;align-items:center;justify-content:center;z-index:90;flex-direction:column;gap:24px}
+.warmup-spinner{width:48px;height:48px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.warmup-tip{max-width:420px;text-align:center;padding:20px 28px;background:var(--card);border:1px solid var(--border);border-radius:16px}
+.warmup-tip .label{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--primary);margin-bottom:8px}
+.warmup-tip .text{font-size:14px;line-height:1.6;color:var(--text)}
+.warmup-status{font-size:13px;color:var(--text-dim)}
 
 .searching-indicator{display:flex;align-items:center;gap:8px;color:var(--text-dim);font-size:13px;padding:8px 0}
 .searching-indicator .dot{width:6px;height:6px;border-radius:50%;background:var(--primary);animation:pulse 1.4s infinite}
@@ -342,6 +354,69 @@ async function initApp() {
   enterApp();
 }
 
+const TIPS = [
+  "💡 Take a 5-minute break every hour — it actually boosts your focus and productivity.",
+  "💡 Turn off your monitor when you leave your desk — small habit, real energy savings.",
+  "💡 Block 30 minutes of 'deep work' on your calendar each morning before meetings take over.",
+  "💡 Use the 2-minute rule: if a task takes less than 2 minutes, do it now instead of adding it to your list.",
+  "💡 Unplug chargers and devices at the end of the day — phantom power adds up.",
+  "💡 Set your phone to Do Not Disturb during focus time — notifications can wait.",
+  "💡 Bring a reusable water bottle — staying hydrated keeps your energy up all day.",
+  "💡 End your workday at a fixed time — boundaries make you more productive, not less.",
+  "💡 Use natural light when possible — it saves energy and improves your mood.",
+  "💡 Take the stairs when you can — quick energy boost between meetings.",
+  "💡 Keep your desk clean — a clear workspace means a clear mind.",
+  "💡 Batch similar tasks together — context switching is the silent productivity killer.",
+  "💡 Set your AC to 24°C — comfortable and energy-efficient.",
+  "💡 Take a walk outside during lunch — sunlight and movement recharge you for the afternoon.",
+  "💡 Review your to-do list at the end of the day so tomorrow morning you can hit the ground running.",
+];
+
+let _warmupEl = null;
+let _tipInterval = null;
+
+function showWarmup() {
+  if (_warmupEl) return;
+  _warmupEl = document.createElement('div');
+  _warmupEl.className = 'warmup-overlay';
+  const tip = TIPS[Math.floor(Math.random() * TIPS.length)];
+  _warmupEl.innerHTML = `
+    <div class="warmup-spinner"></div>
+    <p class="warmup-status">System is warming up...</p>
+    <div class="warmup-tip">
+      <div class="label">Tip of the Day</div>
+      <div class="text">${tip}</div>
+    </div>
+  `;
+  document.body.appendChild(_warmupEl);
+  _tipInterval = setInterval(() => {
+    const t = TIPS[Math.floor(Math.random() * TIPS.length)];
+    _warmupEl.querySelector('.text').textContent = t;
+  }, 6000);
+}
+
+function hideWarmup() {
+  if (_warmupEl) { _warmupEl.remove(); _warmupEl = null; }
+  if (_tipInterval) { clearInterval(_tipInterval); _tipInterval = null; }
+}
+
+async function waitForWarmup() {
+  try {
+    const res = await fetch('/api/health');
+    const data = await res.json();
+    if (data.model_ready) { hideWarmup(); return; }
+  } catch {}
+  showWarmup();
+  while (true) {
+    await new Promise(r => setTimeout(r, 3000));
+    try {
+      const res = await fetch('/api/health');
+      const data = await res.json();
+      if (data.model_ready) { hideWarmup(); return; }
+    } catch {}
+  }
+}
+
 function enterApp() {
   showAuth(false);
   $('userEmail').textContent = currentUser.email;
@@ -349,7 +424,7 @@ function enterApp() {
   $('chatInput').disabled = false;
   $('sendBtn').disabled = false;
 
-  const tasks = [loadSessions(), loadTopQuestions()];
+  const tasks = [loadSessions(), loadTopQuestions(), waitForWarmup()];
   if (currentUser.role === 'admin') {
     $('docsSection').style.display = 'block';
     tasks.push(loadDocuments());
@@ -425,12 +500,13 @@ function detectDir(text) {
 function appendMessage(role, content) {
   const div = document.createElement('div');
   const dir = detectDir(content);
-  div.className = `message ${role}${dir === 'rtl' ? ' rtl' : ''}`;
-  const avatar = role === 'assistant' ? 'A' : 'U';
+  const isRtl = dir === 'rtl';
+  div.className = `message ${role}${isRtl ? ' rtl' : ''}`;
+  const avatar = role === 'assistant' ? '🤖' : '👤';
   div.innerHTML = `<div class="avatar">${avatar}</div><div class="bubble"></div>`;
   const bubble = div.querySelector('.bubble');
   bubble.setAttribute('dir', dir);
-  bubble.style.textAlign = dir === 'rtl' ? 'right' : 'left';
+  bubble.style.textAlign = isRtl ? 'right' : 'left';
   if (role === 'assistant') {
     bubble.innerHTML = marked.parse(content);
   } else {
@@ -467,18 +543,12 @@ async function sendMessage() {
   $('sendBtn').disabled = true;
 
   try {
-    let res;
     const reqBody = JSON.stringify({ session_id: currentSessionId, message: text, language: $('langSelect').value });
-    for (let attempt = 0; attempt < 10; attempt++) {
-      res = await fetch('/api/chat/message', {
-        method: 'POST',
-        headers: authHeaders(),
-        body: reqBody,
-      });
-      if (res.status !== 503) break;
-      indicator.querySelector('span').textContent = 'System warming up, please wait...';
-      await new Promise(r => setTimeout(r, 5000));
-    }
+    const res = await fetch('/api/chat/message', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: reqBody,
+    });
 
     if (!res.ok) {
       let msg = 'Failed to send message';
@@ -538,18 +608,16 @@ async function sendMessage() {
       const followUp = fullText.slice(sepIdx + 5).trim();
       bubble.innerHTML = marked.parse(mainText);
       if (followUp) {
-        const fuDiv = document.createElement('div');
-        fuDiv.className = 'followup-bubble';
         const dir = detectDir(followUp);
-        fuDiv.setAttribute('dir', dir);
-        fuDiv.style.textAlign = dir === 'rtl' ? 'right' : 'left';
-        fuDiv.textContent = followUp;
-        fuDiv.onclick = () => { $('chatInput').value = followUp; sendMessage(); };
-        msgDiv.parentElement.insertBefore(fuDiv, msgDiv.nextSibling);
-        const isRtl = dir === 'rtl';
-        fuDiv.style.alignSelf = isRtl ? 'flex-end' : 'flex-start';
-        fuDiv.style.marginLeft = isRtl ? '0' : '44px';
-        fuDiv.style.marginRight = isRtl ? '44px' : '0';
+        const wrap = document.createElement('div');
+        wrap.className = 'followup-wrap' + (dir === 'rtl' ? ' rtl' : '');
+        wrap.innerHTML = '<div class="followup-spacer"></div><div class="followup-bubble"></div>';
+        const fuBubble = wrap.querySelector('.followup-bubble');
+        fuBubble.setAttribute('dir', dir);
+        fuBubble.style.textAlign = dir === 'rtl' ? 'right' : 'left';
+        fuBubble.textContent = followUp;
+        fuBubble.onclick = () => { $('chatInput').value = followUp; sendMessage(); };
+        $('chatArea').appendChild(wrap);
       }
     }
 
