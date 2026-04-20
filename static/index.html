@@ -91,12 +91,18 @@ input,textarea{font-family:inherit;font-size:inherit}
 .followup-bubble{background:linear-gradient(135deg,#6c63ff22,#6c63ff11);border:1px dashed var(--primary);border-radius:12px;padding:10px 16px;font-size:13px;color:var(--text-dim);cursor:pointer;max-width:600px;transition:border-color .2s,color .2s}
 .followup-bubble:hover{border-color:var(--text);color:var(--text)}
 
-.warmup-overlay{position:fixed;inset:0;background:rgba(15,17,23,.92);display:flex;align-items:center;justify-content:center;z-index:90;flex-direction:column;gap:24px}
+.warmup-overlay{position:fixed;inset:0;background:rgba(15,17,23,.92);display:flex;align-items:center;justify-content:center;z-index:90;flex-direction:column;gap:28px}
 .warmup-spinner{width:48px;height:48px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-.warmup-tip{max-width:420px;text-align:center;padding:20px 28px;background:var(--card);border:1px solid var(--border);border-radius:16px}
-.warmup-tip .label{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--primary);margin-bottom:8px}
-.warmup-tip .text{font-size:14px;line-height:1.6;color:var(--text)}
+.warmup-tip{max-width:520px;width:90vw;text-align:center;padding:32px 36px;background:linear-gradient(135deg,#1e1b4b,#312e81,#1e3a5f);border:1px solid #4f46e5;border-radius:20px;box-shadow:0 0 40px rgba(99,102,241,.15)}
+.warmup-tip .label{font-size:13px;text-transform:uppercase;letter-spacing:2px;color:#a5b4fc;margin-bottom:14px;font-weight:600}
+.warmup-tip .icon{font-size:36px;margin-bottom:12px}
+.warmup-tip .text{font-size:16px;line-height:1.7;color:#e0e7ff;min-height:52px}
+.warmup-tip .tip-actions{margin-top:20px;display:flex;gap:12px;justify-content:center}
+.warmup-tip .next-btn{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#c7d2fe;padding:8px 20px;border-radius:10px;font-size:13px;cursor:pointer;transition:all .2s}
+.warmup-tip .next-btn:hover{background:rgba(255,255,255,.18);color:#fff}
+.warmup-tip .close-btn{background:#4f46e5;border:none;color:#fff;padding:8px 24px;border-radius:10px;font-size:13px;cursor:pointer;transition:all .2s;display:none}
+.warmup-tip .close-btn:hover{background:#6366f1}
 .warmup-status{font-size:13px;color:var(--text-dim)}
 
 .searching-indicator{display:flex;align-items:center;gap:8px;color:var(--text-dim);font-size:13px;padding:8px 0}
@@ -373,46 +379,69 @@ const TIPS = [
 ];
 
 let _warmupEl = null;
-let _tipInterval = null;
+let _tipIndex = 0;
+let _modelReady = false;
+
+function _shuffleTips() {
+  for (let i = TIPS.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [TIPS[i], TIPS[j]] = [TIPS[j], TIPS[i]];
+  }
+}
+
+function _nextTip() {
+  _tipIndex = (_tipIndex + 1) % TIPS.length;
+  if (_warmupEl) _warmupEl.querySelector('.text').textContent = TIPS[_tipIndex];
+}
 
 function showWarmup() {
   if (_warmupEl) return;
+  _shuffleTips();
+  _tipIndex = 0;
   _warmupEl = document.createElement('div');
   _warmupEl.className = 'warmup-overlay';
-  const tip = TIPS[Math.floor(Math.random() * TIPS.length)];
   _warmupEl.innerHTML = `
     <div class="warmup-spinner"></div>
     <p class="warmup-status">System is warming up...</p>
     <div class="warmup-tip">
+      <div class="icon">✨</div>
       <div class="label">Tip of the Day</div>
-      <div class="text">${tip}</div>
+      <div class="text">${TIPS[0]}</div>
+      <div class="tip-actions">
+        <button class="next-btn">Next tip →</button>
+        <button class="close-btn">Got it, let's go! ✓</button>
+      </div>
     </div>
   `;
+  _warmupEl.querySelector('.next-btn').onclick = _nextTip;
+  _warmupEl.querySelector('.close-btn').onclick = () => {
+    _warmupEl.remove(); _warmupEl = null;
+  };
   document.body.appendChild(_warmupEl);
-  _tipInterval = setInterval(() => {
-    const t = TIPS[Math.floor(Math.random() * TIPS.length)];
-    _warmupEl.querySelector('.text').textContent = t;
-  }, 6000);
 }
 
-function hideWarmup() {
-  if (_warmupEl) { _warmupEl.remove(); _warmupEl = null; }
-  if (_tipInterval) { clearInterval(_tipInterval); _tipInterval = null; }
+function _markWarmupReady() {
+  _modelReady = true;
+  if (!_warmupEl) return;
+  _warmupEl.querySelector('.warmup-spinner').style.display = 'none';
+  _warmupEl.querySelector('.warmup-status').textContent = 'System ready!';
+  _warmupEl.querySelector('.warmup-status').style.color = 'var(--success)';
+  _warmupEl.querySelector('.close-btn').style.display = 'inline-block';
 }
 
 async function waitForWarmup() {
   try {
     const res = await fetch('/api/health');
     const data = await res.json();
-    if (data.model_ready) { hideWarmup(); return; }
+    if (data.model_ready) { _modelReady = true; return; }
   } catch {}
   showWarmup();
   while (true) {
-    await new Promise(r => setTimeout(r, 3000));
+    await new Promise(r => setTimeout(r, 2000));
     try {
       const res = await fetch('/api/health');
       const data = await res.json();
-      if (data.model_ready) { hideWarmup(); return; }
+      if (data.model_ready) { _markWarmupReady(); return; }
     } catch {}
   }
 }
