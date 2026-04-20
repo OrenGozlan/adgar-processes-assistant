@@ -69,6 +69,8 @@ input,textarea{font-family:inherit;font-size:inherit}
 
 .message{display:flex;gap:12px;max-width:800px}
 .message.user{align-self:flex-end;flex-direction:row-reverse}
+.message.rtl{flex-direction:row-reverse;align-self:flex-end}
+.message.rtl.user{flex-direction:row;align-self:flex-start}
 .message .avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
 .message.assistant .avatar{background:var(--primary);color:#fff}
 .message.user .avatar{background:var(--card);color:var(--text-dim)}
@@ -81,6 +83,9 @@ input,textarea{font-family:inherit;font-size:inherit}
 .message .bubble pre{background:rgba(0,0,0,.3);padding:12px;border-radius:8px;overflow-x:auto;margin:8px 0}
 .message .bubble pre code{background:none;padding:0}
 .message .bubble ul,.message .bubble ol{padding-left:20px;margin-bottom:8px}
+.message .bubble[dir="rtl"] ul,.message .bubble[dir="rtl"] ol{padding-left:0;padding-right:20px}
+.followup-bubble{background:var(--primary);background:linear-gradient(135deg,#6c63ff22,#6c63ff11);border:1px dashed var(--primary);border-radius:12px;padding:10px 16px;font-size:13px;color:var(--text-dim);cursor:pointer;margin-top:4px;max-width:600px;transition:border-color .2s}
+.followup-bubble:hover{border-color:var(--text);color:var(--text)}
 
 .searching-indicator{display:flex;align-items:center;gap:8px;color:var(--text-dim);font-size:13px;padding:8px 0}
 .searching-indicator .dot{width:6px;height:6px;border-radius:50%;background:var(--primary);animation:pulse 1.4s infinite}
@@ -95,6 +100,8 @@ input,textarea{font-family:inherit;font-size:inherit}
 .send-btn{width:44px;height:44px;background:var(--primary);border-radius:12px;color:#fff;font-size:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .send-btn:hover{background:var(--primary-hover)}
 .send-btn:disabled{opacity:.4;cursor:not-allowed}
+.lang-select{background:var(--input-bg);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 10px;font-size:13px;outline:none;cursor:pointer;flex-shrink:0}
+.lang-select:focus{border-color:var(--primary)}
 
 /* Auth screens */
 .auth-overlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:100}
@@ -222,6 +229,11 @@ input,textarea{font-family:inherit;font-size:inherit}
       </div>
     </div>
     <div class="input-area">
+      <select id="langSelect" class="lang-select">
+        <option value="en">EN</option>
+        <option value="he">HE</option>
+        <option value="pl">PL</option>
+      </select>
       <textarea id="chatInput" rows="1" placeholder="Ask a question..." disabled></textarea>
       <button class="send-btn" id="sendBtn" disabled>&#10148;</button>
     </div>
@@ -230,7 +242,7 @@ input,textarea{font-family:inherit;font-size:inherit}
 
 <script>
 const API = '';
-let token = localStorage.getItem('token');
+let token = sessionStorage.getItem('token');
 let currentUser = null;
 let currentSessionId = null;
 let isStreaming = false;
@@ -269,14 +281,22 @@ $('authSubmit').onclick = async () => {
     if (body.role === 'admin') body.admin_code = $('authAdminCode').value;
   }
 
+  $('authSubmit').disabled = true;
+  $('authSubmit').textContent = 'Please wait...';
+  $('authError').style.display = 'none';
+
   try {
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Auth failed');
     token = data.token;
-    localStorage.setItem('token', token);
-    await initApp();
-  } catch (e) { showError(e.message); }
+    sessionStorage.setItem('token', token);
+    currentUser = { id: data.id, email: data.email, role: data.role };
+    enterApp();
+  } catch (e) { showError(e.message); } finally {
+    $('authSubmit').disabled = false;
+    $('authSubmit').textContent = isLogin ? 'Sign In' : 'Register';
+  }
 };
 
 function showError(msg) {
@@ -289,16 +309,24 @@ function authHeaders() { return { 'Authorization': `Bearer ${token}`, 'Content-T
 
 async function apiFetch(url, opts = {}) {
   opts.headers = { ...authHeaders(), ...opts.headers };
-  const res = await fetch(url, opts);
-  if (res.status === 401) { logout(); throw new Error('Session expired'); }
-  return res;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    const res = await fetch(url, { ...opts, signal: controller.signal });
+    if (res.status === 401) { logout(); throw new Error('Session expired'); }
+    return res;
+  } finally { clearTimeout(timeout); }
 }
 
 function logout() {
   token = null;
   currentUser = null;
   currentSessionId = null;
-  localStorage.removeItem('token');
+  sessionStorage.removeItem('token');
+  $('sessionsList').innerHTML = '';
+  $('docsList').innerHTML = '';
+  $('docsSection').style.display = 'none';
+  showEmpty();
   showAuth(true);
 }
 
@@ -311,20 +339,22 @@ async function initApp() {
     if (!res.ok) throw new Error();
     currentUser = await res.json();
   } catch { return logout(); }
+  enterApp();
+}
 
+function enterApp() {
   showAuth(false);
   $('userEmail').textContent = currentUser.email;
   $('userRole').textContent = currentUser.role;
   $('chatInput').disabled = false;
   $('sendBtn').disabled = false;
 
+  const tasks = [loadSessions(), loadTopQuestions()];
   if (currentUser.role === 'admin') {
     $('docsSection').style.display = 'block';
-    loadDocuments();
+    tasks.push(loadDocuments());
   }
-
-  loadSessions();
-  loadTopQuestions();
+  Promise.all(tasks);
 }
 
 // --- Sessions ---
@@ -387,15 +417,24 @@ async function loadTopQuestions() {
 }
 
 // --- Chat ---
+function detectDir(text) {
+  const rtlRe = /[\u0590-\u05FF\u0600-\u06FF\u0700-\u074F]/;
+  return rtlRe.test(text.slice(0, 100)) ? 'rtl' : 'ltr';
+}
+
 function appendMessage(role, content) {
   const div = document.createElement('div');
-  div.className = `message ${role}`;
+  const dir = detectDir(content);
+  div.className = `message ${role}${dir === 'rtl' ? ' rtl' : ''}`;
   const avatar = role === 'assistant' ? 'A' : 'U';
   div.innerHTML = `<div class="avatar">${avatar}</div><div class="bubble"></div>`;
+  const bubble = div.querySelector('.bubble');
+  bubble.setAttribute('dir', dir);
+  bubble.style.textAlign = dir === 'rtl' ? 'right' : 'left';
   if (role === 'assistant') {
-    div.querySelector('.bubble').innerHTML = marked.parse(content);
+    bubble.innerHTML = marked.parse(content);
   } else {
-    div.querySelector('.bubble').textContent = content;
+    bubble.textContent = content;
   }
   $('chatArea').appendChild(div);
   return div;
@@ -428,15 +467,23 @@ async function sendMessage() {
   $('sendBtn').disabled = true;
 
   try {
-    const res = await fetch('/api/chat/message', {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ session_id: currentSessionId, message: text }),
-    });
+    let res;
+    const reqBody = JSON.stringify({ session_id: currentSessionId, message: text, language: $('langSelect').value });
+    for (let attempt = 0; attempt < 10; attempt++) {
+      res = await fetch('/api/chat/message', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: reqBody,
+      });
+      if (res.status !== 503) break;
+      indicator.querySelector('span').textContent = 'System warming up, please wait...';
+      await new Promise(r => setTimeout(r, 5000));
+    }
 
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || 'Failed to send message');
+      let msg = 'Failed to send message';
+      try { const err = await res.json(); msg = err.detail || msg; } catch {}
+      throw new Error(msg);
     }
 
     indicator.remove();
@@ -444,6 +491,7 @@ async function sendMessage() {
     const msgDiv = appendMessage('assistant', '');
     const bubble = msgDiv.querySelector('.bubble');
     let fullText = '';
+    let dirDetected = false;
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -461,7 +509,19 @@ async function sendMessage() {
         if (line.startsWith('data: ')) {
           const data = line.slice(6);
           fullText += data;
-          bubble.innerHTML = marked.parse(fullText);
+          if (!dirDetected && fullText.length > 5) {
+            const dir = detectDir(fullText);
+            bubble.setAttribute('dir', dir);
+            bubble.style.textAlign = dir === 'rtl' ? 'right' : 'left';
+            if (dir === 'rtl') msgDiv.classList.add('rtl');
+            dirDetected = true;
+          }
+          const separatorIdx = fullText.indexOf('\n---\n');
+          if (separatorIdx === -1) {
+            bubble.innerHTML = marked.parse(fullText);
+          } else {
+            bubble.innerHTML = marked.parse(fullText.slice(0, separatorIdx));
+          }
           scrollBottom();
         } else if (line.startsWith('event: done')) {
           const nextLine = lines[lines.indexOf(line) + 1];
@@ -469,6 +529,27 @@ async function sendMessage() {
             currentSessionId = parseInt(nextLine.slice(6));
           }
         }
+      }
+    }
+
+    const sepIdx = fullText.indexOf('\n---\n');
+    if (sepIdx !== -1) {
+      const mainText = fullText.slice(0, sepIdx);
+      const followUp = fullText.slice(sepIdx + 5).trim();
+      bubble.innerHTML = marked.parse(mainText);
+      if (followUp) {
+        const fuDiv = document.createElement('div');
+        fuDiv.className = 'followup-bubble';
+        const dir = detectDir(followUp);
+        fuDiv.setAttribute('dir', dir);
+        fuDiv.style.textAlign = dir === 'rtl' ? 'right' : 'left';
+        fuDiv.textContent = followUp;
+        fuDiv.onclick = () => { $('chatInput').value = followUp; sendMessage(); };
+        msgDiv.parentElement.insertBefore(fuDiv, msgDiv.nextSibling);
+        const isRtl = dir === 'rtl';
+        fuDiv.style.alignSelf = isRtl ? 'flex-end' : 'flex-start';
+        fuDiv.style.marginLeft = isRtl ? '0' : '44px';
+        fuDiv.style.marginRight = isRtl ? '44px' : '0';
       }
     }
 
@@ -485,6 +566,11 @@ async function sendMessage() {
 }
 
 $('sendBtn').onclick = sendMessage;
+$('langSelect').onchange = function() {
+  const dir = this.value === 'he' ? 'rtl' : 'ltr';
+  $('chatInput').setAttribute('dir', dir);
+  $('chatInput').style.textAlign = dir === 'rtl' ? 'right' : 'left';
+};
 $('chatInput').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 });
@@ -494,18 +580,28 @@ $('chatInput').addEventListener('input', function() {
 });
 
 // --- Documents ---
+let _docPollTimer = null;
 async function loadDocuments() {
   try {
     const res = await apiFetch('/api/admin/documents');
     const docs = await res.json();
     $('docsList').innerHTML = '';
+    let hasProcessing = false;
     docs.forEach(d => {
       const div = document.createElement('div');
       div.className = 'doc-item';
+      const isProcessing = d.status === 'processing';
+      const isError = d.status === 'error';
+      if (isProcessing) hasProcessing = true;
+      const statusBadge = isProcessing
+        ? '<span style="font-size:10px;color:#f0a030;white-space:nowrap">Processing...</span>'
+        : isError
+        ? '<span style="font-size:10px;color:var(--danger)">Error</span>'
+        : `<span style="font-size:10px;color:var(--text-dim)">${d.chunk_count}ch</span>`;
       div.innerHTML = `
         <span class="name" title="${esc(d.filename)}">${esc(d.filename)}</span>
-        <span style="font-size:10px;color:var(--text-dim)">${d.chunk_count}ch</span>
-        <button class="toggle ${d.active ? 'active' : ''}" title="Toggle active"></button>
+        ${statusBadge}
+        <button class="toggle ${d.active ? 'active' : ''}" title="Toggle active" ${isProcessing ? 'disabled' : ''}></button>
         <button class="del" title="Delete">&times;</button>
       `;
       div.querySelector('.toggle').onclick = async () => {
@@ -518,6 +614,8 @@ async function loadDocuments() {
       };
       $('docsList').appendChild(div);
     });
+    if (_docPollTimer) { clearInterval(_docPollTimer); _docPollTimer = null; }
+    if (hasProcessing) { _docPollTimer = setInterval(loadDocuments, 5000); }
   } catch {}
 }
 
@@ -553,7 +651,7 @@ async function uploadFile(file) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Upload failed');
 
-    $('uploadStatus').textContent = `Success! Extracted ${data.chunk_count} chunks from ${data.filename}`;
+    $('uploadStatus').textContent = `Uploaded! Document is being processed in the background.`;
     $('uploadStatus').style.color = 'var(--success)';
     loadDocuments();
   } catch (e) {

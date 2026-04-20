@@ -17,7 +17,7 @@ from auth import (
     hash_password, verify_password, create_token,
     get_current_user, require_admin,
 )
-from embeddings import embed_text, embed_texts, cosine_similarity
+from embeddings import embed_text, embed_texts, cosine_similarity, is_model_ready
 from document_parser import extract_text, chunk_text
 
 app = FastAPI(title="Adgar's Processes Personal Assistant")
@@ -31,9 +31,38 @@ app.add_middleware(
 )
 
 
+UPLOAD_DIR = "/data/uploads" if os.path.isdir("/data") else "./uploads"
+
+
 @app.on_event("startup")
 def startup():
     init_db()
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    import threading
+    threading.Thread(target=_startup_background, daemon=True).start()
+
+
+def _startup_background():
+    from embeddings import _get_model
+    _get_model()
+    _retry_stuck_documents()
+
+
+def _retry_stuck_documents():
+    db = next(get_db())
+    try:
+        stuck = db.query(Document).filter(Document.status == "processing").all()
+        for doc in stuck:
+            filepath = os.path.join(UPLOAD_DIR, doc.filename)
+            if os.path.exists(filepath):
+                with open(filepath, "rb") as f:
+                    file_bytes = f.read()
+                _process_document(doc.id, file_bytes, doc.original_name)
+            else:
+                doc.status = "error"
+                db.commit()
+    finally:
+        db.close()
 
 
 # --------------- Health ---------------
@@ -57,8 +86,18 @@ class LoginBody(BaseModel):
     password: str
 
 
+ALLOWED_EMAIL_DOMAINS = [r"adgar\..+", r"greems\.io"]
+
+
+def _is_email_domain_allowed(email: str) -> bool:
+    domain = email.split("@")[-1].lower()
+    return any(re.fullmatch(pattern, domain) for pattern in ALLOWED_EMAIL_DOMAINS)
+
+
 @app.post("/api/auth/register")
 def register(body: RegisterBody, db: Session = Depends(get_db)):
+    if not _is_email_domain_allowed(body.email):
+        raise HTTPException(403, "Registration is restricted to authorized company domains")
     if db.query(User).filter(User.email == body.email).first():
         raise HTTPException(400, "Email already registered")
     role = "employee"
@@ -89,6 +128,42 @@ def me(user: User = Depends(get_current_user)):
 
 # --------------- Admin: Documents ---------------
 
+def _process_document(doc_id: int, file_bytes: bytes, filename: str):
+    import threading
+    db = next(get_db())
+    try:
+        text = extract_text(file_bytes, filename)
+        if not text.strip():
+            doc = db.query(Document).filter(Document.id == doc_id).first()
+            if doc:
+                doc.status = "error"
+                db.commit()
+            return
+
+        chunks = chunk_text(text)
+        embeddings = embed_texts(chunks)
+
+        doc = db.query(Document).filter(Document.id == doc_id).first()
+        if not doc:
+            return
+
+        for i, (chunk_text_item, emb) in enumerate(zip(chunks, embeddings)):
+            c = Chunk(document_id=doc.id, content=chunk_text_item, chunk_index=i)
+            c.set_embedding(emb)
+            db.add(c)
+
+        doc.chunk_count = len(chunks)
+        doc.status = "ready"
+        db.commit()
+    except Exception:
+        doc = db.query(Document).filter(Document.id == doc_id).first()
+        if doc:
+            doc.status = "error"
+            db.commit()
+    finally:
+        db.close()
+
+
 @app.post("/api/admin/documents/upload")
 async def upload_document(
     file: UploadFile = File(...),
@@ -102,34 +177,33 @@ async def upload_document(
         raise HTTPException(400, f"Unsupported file type. Allowed: {', '.join(allowed)}")
 
     content = await file.read()
-    text = extract_text(content, file.filename)
-    if not text.strip():
-        raise HTTPException(400, "Could not extract any text from the file")
-
-    chunks = chunk_text(text)
-    embeddings = embed_texts(chunks)
 
     stored_name = f"{uuid.uuid4().hex}_{file.filename}"
+    filepath = os.path.join(UPLOAD_DIR, stored_name)
+    with open(filepath, "wb") as f:
+        f.write(content)
     doc = Document(
         filename=stored_name,
         original_name=file.filename,
         uploaded_by=user.id,
-        chunk_count=len(chunks),
+        chunk_count=0,
+        status="processing",
     )
     db.add(doc)
-    db.flush()
-
-    for i, (chunk_text_item, emb) in enumerate(zip(chunks, embeddings)):
-        c = Chunk(document_id=doc.id, content=chunk_text_item, chunk_index=i)
-        c.set_embedding(emb)
-        db.add(c)
-
     db.commit()
     db.refresh(doc)
+
+    import threading
+    threading.Thread(
+        target=_process_document,
+        args=(doc.id, content, file.filename),
+        daemon=True,
+    ).start()
+
     return {
         "id": doc.id,
         "filename": doc.original_name,
-        "chunk_count": doc.chunk_count,
+        "status": "processing",
         "upload_date": doc.upload_date.isoformat(),
     }
 
@@ -144,6 +218,7 @@ def list_documents(user: User = Depends(require_admin), db: Session = Depends(ge
             "upload_date": d.upload_date.isoformat(),
             "chunk_count": d.chunk_count,
             "active": d.active,
+            "status": d.status or "ready",
         }
         for d in docs
     ]
@@ -154,9 +229,10 @@ def delete_document(doc_id: int, user: User = Depends(require_admin), db: Sessio
     doc = db.query(Document).filter(Document.id == doc_id).first()
     if not doc:
         raise HTTPException(404, "Document not found")
-    doc.active = False
+    db.query(Chunk).filter(Chunk.document_id == doc_id).delete()
+    db.delete(doc)
     db.commit()
-    return {"detail": "Document deactivated"}
+    return {"detail": "Document deleted"}
 
 
 @app.patch("/api/admin/documents/{doc_id}/toggle")
@@ -171,9 +247,13 @@ def toggle_document(doc_id: int, user: User = Depends(require_admin), db: Sessio
 
 # --------------- Chat ---------------
 
+LANGUAGE_MAP = {"en": "English", "he": "Hebrew (עברית)", "pl": "Polish (Polski)"}
+
+
 class ChatMessageBody(BaseModel):
     session_id: int | None = None
     message: str
+    language: str = "en"
 
 
 def _normalize_question(text: str) -> str:
@@ -204,11 +284,25 @@ def _find_relevant_chunks(db: Session, query_embedding: list[float], top_k: int 
     return [c for _, c in scored[:top_k]]
 
 
-SYSTEM_PROMPT = (
+SYSTEM_PROMPT_TEMPLATE = (
     "You are Adgar's Processes Personal Assistant. You help employees understand company "
-    "procedures and guidelines. Answer clearly and conversationally based ONLY on the provided "
-    "context. If the answer is not in the documents, say so honestly. Never make up procedures. "
-    "Be concise but thorough."
+    "procedures and guidelines.\n\n"
+    "Rules:\n"
+    "- Answer ONLY based on the provided context. If the answer is not in the documents, say so honestly. Never make up procedures.\n"
+    "- Keep answers SHORT — 2-4 sentences max. Use bullet points when listing steps.\n"
+    "- Use a simple, friendly, casual tone. Like explaining to a colleague over coffee.\n"
+    "- You MUST reply in: {language}.\n"
+    "- If replying in Hebrew: write natural, everyday Israeli Hebrew (עברית יומיומית מדוברת). "
+    "This is critical — sound like a real Israeli colleague, not a translated document. "
+    "Rules: use 'צריך' not 'יש צורך', 'אפשר' not 'ניתן', 'לפנות ל' not 'יש לפנות אל', "
+    "'בגלל ש' not 'מאחר ש', 'כדי ש' not 'על מנת ש', 'לגבי' not 'באשר ל', "
+    "'עם' not 'יחד עם', 'קודם' not 'לפני כן'. Avoid passive voice — use active, direct phrasing. "
+    "Keep sentences short and punchy. No bureaucratic Hebrew.\n"
+    "- If replying in Polish: use everyday conversational Polish.\n"
+    "- IMPORTANT: Your response MUST end with a line containing exactly `---` followed by a short follow-up suggestion "
+    "(e.g. a question to dig deeper, a suggestion to contact a specific manager, or an offer to show more from the document). "
+    "This follow-up line will be displayed separately. Write it in the same language as the answer.\n"
+    "- Never switch languages mid-answer."
 )
 
 
@@ -222,6 +316,9 @@ def chat_message(
 
     if not body.message.strip():
         raise HTTPException(400, "Message cannot be empty")
+
+    if not is_model_ready():
+        raise HTTPException(503, "The system is still loading. Please try again in a moment.")
 
     if body.session_id:
         session = db.query(ChatSession).filter(
@@ -265,6 +362,9 @@ def chat_message(
 
     _update_top_questions(db, body.message)
 
+    lang_name = LANGUAGE_MAP.get(body.language, "English")
+    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(language=lang_name)
+
     client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
     session_id = session.id
 
@@ -273,7 +373,7 @@ def chat_message(
         with client.messages.stream(
             model="claude-sonnet-4-20250514",
             max_tokens=2048,
-            system=SYSTEM_PROMPT,
+            system=system_prompt,
             messages=messages,
         ) as stream:
             for text in stream.text_stream:

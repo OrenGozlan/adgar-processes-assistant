@@ -1,14 +1,28 @@
+import os
 import numpy as np
+import threading
 
 _model = None
+_model_lock = threading.Lock()
+
+CACHE_DIR = "/data/models" if os.path.isdir("/data") else "./models"
 
 
 def _get_model():
     global _model
-    if _model is None:
+    if _model is not None:
+        return _model
+    with _model_lock:
+        if _model is not None:
+            return _model
+        os.makedirs(CACHE_DIR, exist_ok=True)
         from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer("all-MiniLM-L6-v2")
-    return _model
+        _model = SentenceTransformer("all-MiniLM-L6-v2", cache_folder=CACHE_DIR)
+        return _model
+
+
+def is_model_ready() -> bool:
+    return _model is not None
 
 
 def embed_text(text: str) -> list[float]:

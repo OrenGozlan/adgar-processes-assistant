@@ -22,3 +22,14 @@ def get_db():
 def init_db():
     from models import User, Document, Chunk, ChatSession, Message, TopQuestion  # noqa: F401
     Base.metadata.create_all(bind=engine)
+    _migrate(engine)
+
+
+def _migrate(eng):
+    from sqlalchemy import text, inspect
+    insp = inspect(eng)
+    if "documents" in insp.get_table_names():
+        cols = [c["name"] for c in insp.get_columns("documents")]
+        if "status" not in cols:
+            with eng.begin() as conn:
+                conn.execute(text("ALTER TABLE documents ADD COLUMN status VARCHAR DEFAULT 'ready'"))
