@@ -148,6 +148,11 @@ input,textarea{font-family:inherit;font-size:inherit}
 .pending-badge{display:inline-block;background:rgba(240,160,48,.2);color:#f0a030;font-size:10px;padding:2px 6px;border-radius:4px;white-space:nowrap}
 .approve-btn{background:none;color:var(--success);font-size:14px;padding:0 3px;border:none;cursor:pointer}
 .reject-btn{background:none;color:var(--danger);font-size:14px;padding:0 3px;border:none;cursor:pointer}
+.enhancement-item{padding:8px 0;font-size:12px;display:flex;align-items:flex-start;gap:6px;color:var(--text-dim);border-bottom:1px solid var(--border)}
+.enhancement-item .eq{flex:1;line-height:1.4;word-break:break-word}
+.enhancement-item .by{font-size:10px;color:var(--text-dim);opacity:.7}
+.enhancement-item .dismiss{background:none;color:var(--danger);font-size:14px;padding:0 3px;border:none;cursor:pointer;flex-shrink:0}
+.enhancement-count{display:inline-block;background:var(--danger);color:#fff;font-size:10px;padding:1px 6px;border-radius:8px;margin-left:6px;vertical-align:middle}
 
 /* Upload modal */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:200}
@@ -277,6 +282,10 @@ input,textarea{font-family:inherit;font-size:inherit}
       <button class="upload-btn" id="uploadBtn">+ Upload Document</button>
       <div id="docsList"></div>
     </div>
+    <div class="docs-section" id="enhancementsSection" style="display:none">
+      <h3>Enhancement Requests</h3>
+      <div id="enhancementsList"></div>
+    </div>
     <div class="sidebar-footer">
       <div class="user-info">
         <span id="userEmail">-</span>
@@ -390,6 +399,7 @@ function logout() {
   $('sessionsList').innerHTML = '';
   $('docsList').innerHTML = '';
   $('docsSection').style.display = 'none';
+  $('enhancementsSection').style.display = 'none';
   $('suggestSection').style.display = 'none';
   showEmpty();
   showAuth(true);
@@ -508,7 +518,9 @@ function enterApp() {
   const tasks = [loadSessions(), loadTopQuestions(), waitForWarmup()];
   if (currentUser.role === 'admin') {
     $('docsSection').style.display = 'block';
+    $('enhancementsSection').style.display = 'block';
     tasks.push(loadDocuments());
+    tasks.push(loadEnhancements());
   } else {
     $('suggestSection').style.display = 'block';
   }
@@ -836,6 +848,35 @@ async function loadDocuments() {
     });
     if (_docPollTimer) { clearInterval(_docPollTimer); _docPollTimer = null; }
     if (hasProcessing) { _docPollTimer = setInterval(loadDocuments, 5000); }
+  } catch {}
+}
+
+// --- Enhancements ---
+async function loadEnhancements() {
+  try {
+    const res = await apiFetch('/api/admin/enhancements');
+    const items = await res.json();
+    const list = $('enhancementsList');
+    list.innerHTML = '';
+    const header = $('enhancementsSection').querySelector('h3');
+    header.innerHTML = 'Enhancement Requests' + (items.length ? `<span class="enhancement-count">${items.length}</span>` : '');
+    if (items.length === 0) {
+      list.innerHTML = '<div style="font-size:11px;color:var(--text-dim);padding:4px 0">No requests yet</div>';
+      return;
+    }
+    items.forEach(e => {
+      const div = document.createElement('div');
+      div.className = 'enhancement-item';
+      div.innerHTML = `
+        <div class="eq">${esc(e.question)}<div class="by">${esc(e.submitted_by)} · ${new Date(e.created_at).toLocaleDateString()}</div></div>
+        <button class="dismiss" title="Dismiss">&times;</button>
+      `;
+      div.querySelector('.dismiss').onclick = async () => {
+        await apiFetch(`/api/admin/enhancements/${e.id}`, { method: 'DELETE' });
+        loadEnhancements();
+      };
+      list.appendChild(div);
+    });
   } catch {}
 }
 
