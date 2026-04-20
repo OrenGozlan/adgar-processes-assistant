@@ -1,54 +1,81 @@
 import os
-import numpy as np
 import threading
+import numpy as np
+from tokenizers import Tokenizer
+import onnxruntime as ort
 
-_model = None
-_model_lock = threading.Lock()
+_session = None
+_tokenizer = None
+_lock = threading.Lock()
 
-BAKED_CACHE = "/app/model_cache"
-CACHE_DIR = "/data/models" if os.path.isdir("/data") else "./models"
-
-
-def _find_baked_model():
-    if not os.path.isdir(BAKED_CACHE):
-        return None
-    for name in os.listdir(BAKED_CACHE):
-        if "all-MiniLM-L6-v2" in name:
-            path = os.path.join(BAKED_CACHE, name)
-            if os.path.isdir(path):
-                return path
-    return None
+MODEL_DIR = "/app/model_onnx"
+FALLBACK_DIR = "./model_onnx"
 
 
-def _get_model():
-    global _model
-    if _model is not None:
-        return _model
-    with _model_lock:
-        if _model is not None:
-            return _model
-        from sentence_transformers import SentenceTransformer
-        baked = _find_baked_model()
-        if baked:
-            _model = SentenceTransformer(baked)
-        else:
-            os.makedirs(CACHE_DIR, exist_ok=True)
-            _model = SentenceTransformer("all-MiniLM-L6-v2", cache_folder=CACHE_DIR)
-        return _model
+def _get_model_dir():
+    if os.path.isdir(MODEL_DIR):
+        return MODEL_DIR
+    return FALLBACK_DIR
+
+
+def _init():
+    global _session, _tokenizer
+    if _session is not None:
+        return
+    with _lock:
+        if _session is not None:
+            return
+        d = _get_model_dir()
+        _tokenizer = Tokenizer.from_file(os.path.join(d, "tokenizer.json"))
+        _tokenizer.enable_padding(length=128)
+        _tokenizer.enable_truncation(max_length=128)
+        _session = ort.InferenceSession(
+            os.path.join(d, "model.onnx"),
+            providers=["CPUExecutionProvider"],
+        )
 
 
 def is_model_ready() -> bool:
-    return _model is not None
+    return _session is not None
+
+
+def _mean_pool(token_embs, attention_mask):
+    mask = np.expand_dims(attention_mask, -1).astype(np.float32)
+    summed = np.sum(token_embs * mask, axis=1)
+    counts = np.clip(mask.sum(axis=1), 1e-9, None)
+    return summed / counts
+
+
+def _normalize(v):
+    norms = np.linalg.norm(v, axis=-1, keepdims=True)
+    return v / np.clip(norms, 1e-10, None)
+
+
+def _encode_batch(texts):
+    _init()
+    encoded = _tokenizer.encode_batch(texts)
+    input_ids = np.array([e.ids for e in encoded], dtype=np.int64)
+    attention_mask = np.array([e.attention_mask for e in encoded], dtype=np.int64)
+    token_type_ids = np.zeros_like(input_ids)
+
+    outputs = _session.run(
+        None,
+        {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "token_type_ids": token_type_ids,
+        },
+    )
+    pooled = _mean_pool(outputs[0], attention_mask)
+    return _normalize(pooled)
 
 
 def embed_text(text: str) -> list[float]:
-    model = _get_model()
-    return model.encode(text, normalize_embeddings=True).tolist()
+    return _encode_batch([text])[0].tolist()
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
-    model = _get_model()
-    return model.encode(texts, normalize_embeddings=True).tolist()
+    return _encode_batch(texts).tolist()
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:

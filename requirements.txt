@@ -3,7 +3,8 @@ uvicorn
 sqlalchemy
 pdfplumber
 python-docx
-sentence-transformers
+onnxruntime
+tokenizers
 anthropic
 python-jose[cryptography]
 passlib[bcrypt]

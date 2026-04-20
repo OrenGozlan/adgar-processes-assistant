@@ -4,9 +4,6 @@ primary_region = 'ams'
 [build]
 
 [env]
-  TRANSFORMERS_OFFLINE = "1"
-  HF_HUB_OFFLINE = "1"
-  SENTENCE_TRANSFORMERS_HOME = "/app/model_cache"
 
 [http_service]
   internal_port = 8080
